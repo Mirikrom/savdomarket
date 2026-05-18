@@ -1,0 +1,63 @@
+# --- Maxfiy / lokal ---
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+*.sqlite3
+db.sqlite3
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Django ---
+backend/media/
+backend/staticfiles/
+backend/savdopro/settings_local.py
+local_settings.py
+
+# --- Node / frontend ---
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dev-dist/
+*.local
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# --- Loglar ---
+logs/
+*.log
+
+# --- Docker / deploy ---
+postgres_data/
+
+# --- Cursor / agent (ixtiyoriy) ---
+.cursor/
+agent-transcripts/
