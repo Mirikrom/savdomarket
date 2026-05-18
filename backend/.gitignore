@@ -1,0 +1,16 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+db.sqlite3
+
+media/
+staticfiles/
+
+savdopro/settings_local.py
+local_settings.py
+
+.env
+.env.*
+!.env.example

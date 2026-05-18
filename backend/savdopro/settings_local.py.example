@@ -1,0 +1,5 @@
+# Nusxa: cp settings_local.py.example settings_local.py
+# settings_local.py gitga kirmaydi — faqat shaxsiy dev sozlamalar.
+
+# DEBUG = True
+# SECRET_KEY = "local-only-key"

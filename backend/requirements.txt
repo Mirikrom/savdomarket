@@ -1,0 +1,7 @@
+django
+pillow
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+psycopg[binary]
+requests
