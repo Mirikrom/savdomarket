@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      - "${POSTGRES_PUBLISH_PORT:-5432}:5432"
+      - "${POSTGRES_PUBLISH_PORT:-54311}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +26,7 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - "${BACKEND_PUBLISH_PORT:-8000}:8000"
+      - "${BACKEND_PUBLISH_PORT:-8011}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -43,7 +43,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "${FRONTEND_PUBLISH_PORT:-5173}:5173"
+      - "${FRONTEND_PUBLISH_PORT:-51711}:5173"
     depends_on:
       - backend
 

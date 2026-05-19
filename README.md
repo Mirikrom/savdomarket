@@ -11,9 +11,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
-- Frontend: https://localhost:5173 (yoki `.env` dagi `FRONTEND_PUBLISH_PORT`)  
-- Backend API: http://localhost:8000/api/v1/  
-- Admin: http://localhost:8000/admin/
+- Frontend: https://localhost:51711  
+- Backend API: http://localhost:8011/api/v1/  
+- Admin: http://localhost:8011/admin/
+
+(Lokal va prod bir xil portlar: `.env` da `51711`, `8011`, `54311`.)
 
 ## Git — nima commit qilinadi?
 
@@ -44,7 +46,7 @@ git commit -m "Initial commit: SavdoPro POS"
 
 **Muhim:** `DB_PORT=5432` (ichki). `POSTGRES_PUBLISH_PORT=54311` — faqat hostdan kirish; `DB_PORT` ga qo‘ymang.
 
-Brauzer: `https://SERVER-IP:51711` · API: `http://SERVER-IP:8011/api/v1/`
+Brauzer: `https://SERVER-IP:51711` · API: `http://SERVER-IP:8011/api/v1/` (lokal bilan bir xil)
 
 ### DB ulanish xatosi
 

@@ -6,10 +6,13 @@ Auth endpoints all live under ``/api/v1/auth/`` and are defined in
 ``/api/v1/``.
 """
 
+import re
+
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
+from django.views.static import serve
 
 from accounts.urls import auth_urls
 
@@ -27,3 +30,13 @@ urlpatterns = [
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+elif getattr(settings, 'SERVE_MEDIA', False):
+    # static() DEBUG=False da [] qaytaradi — nginx bo‘lmaguncha serve ishlatamiz
+    media_prefix = settings.MEDIA_URL.lstrip('/')
+    urlpatterns += [
+        re_path(
+            rf'^{re.escape(media_prefix)}(?P<path>.*)$',
+            serve,
+            {'document_root': settings.MEDIA_ROOT},
+        ),
+    ]

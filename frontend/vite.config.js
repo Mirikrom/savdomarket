@@ -3,6 +3,9 @@ import vue from '@vitejs/plugin-vue'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Host port (.env FRONTEND_PUBLISH_PORT) — lokal va prod bir xil: 51711
+const frontendPublishPort = Number(process.env.FRONTEND_PUBLISH_PORT || 51711)
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -53,11 +56,11 @@ export default defineConfig({
     strictPort: true,
     https: true,
     hmr: {
-      clientPort: 5173,
+      clientPort: frontendPublishPort,
       protocol: 'wss',
     },
     // Backend so'rovlarini Vite orqali backend container'iga proxy qilamiz.
-    // Shu tarzda telefon brauzeri faqat 5173 (HTTPS) bilan ishlaydi, CORS muammosi qolmaydi.
+    // Brauzer host porti: FRONTEND_PUBLISH_PORT (51711) — CORS muammosi kamayadi.
     proxy: {
       '/api': {
         target: 'http://backend:8000',
