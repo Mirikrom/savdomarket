@@ -11,7 +11,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-- Frontend: https://localhost:5173  
+- Frontend: https://localhost:5173 (yoki `.env` dagi `FRONTEND_PUBLISH_PORT`)  
 - Backend API: http://localhost:8000/api/v1/  
 - Admin: http://localhost:8000/admin/
 
@@ -38,9 +38,22 @@ git commit -m "Initial commit: SavdoPro POS"
 
 ## Serverga deploy
 
-1. `.env` ni serverda yarating (`DJANGO_DEBUG=False`, kuchli `DJANGO_SECRET_KEY`).
-2. `docker compose up -d --build`
-3. Migratsiya: `docker compose exec backend python manage.py migrate`
+1. Serverda: `cp .env.production.example .env` — `SERVER_IP` va parollarni to‘ldiring.
+2. Yoki `.env.example` dan nusxa olib production portlarini qo‘ying (quyida).
+3. `docker compose up -d --build`
+
+**Muhim:** `DB_PORT=5432` (ichki). `POSTGRES_PUBLISH_PORT=54311` — faqat hostdan kirish; `DB_PORT` ga qo‘ymang.
+
+Brauzer: `https://SERVER-IP:51711` · API: `http://SERVER-IP:8011/api/v1/`
+
+### DB ulanish xatosi
+
+```bash
+docker compose ps
+docker compose exec backend env | grep -E '^DB_|PUBLISH'
+```
+
+`DB_HOST=db`, `DB_PORT=5432` bo‘lishi kerak.
 
 ## Offline sinov
 
