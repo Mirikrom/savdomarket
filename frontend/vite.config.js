@@ -49,26 +49,26 @@ export default defineConfig({
   ],
   server: {
     host: '0.0.0.0',
-    port: 5173,
+    port: 51711,
     strictPort: true,
     https: true,
     hmr: {
-      clientPort: 5173,
+      clientPort: 51711,
       protocol: 'wss',
     },
     // Backend so'rovlarini Vite orqali backend container'iga proxy qilamiz.
     // Shu tarzda telefon brauzeri faqat 5173 (HTTPS) bilan ishlaydi, CORS muammosi qolmaydi.
     proxy: {
       '/api': {
-        target: 'http://backend:8000',
+        target: 'http://backend:8011',
         changeOrigin: true,
       },
       '/media': {
-        target: 'http://backend:8000',
+        target: 'http://backend:8011',
         changeOrigin: true,
       },
       '/admin': {
-        target: 'http://backend:8000',
+        target: 'http://backend:8011',
         changeOrigin: true,
       },
     },

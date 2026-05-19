@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      - "54311:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,11 +25,11 @@ services:
     environment:
       DB_ENGINE: django.db.backends.postgresql
       DB_HOST: db
-      DB_PORT: 54311
+      DB_PORT: 5432
     volumes:
       - ./backend:/app
     ports:
-      - "8011:8000"
+      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -44,7 +44,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "51711:5173"
+      - "5173:5173"
     depends_on:
       - backend
 
