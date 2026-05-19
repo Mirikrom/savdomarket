@@ -1,3 +1,4 @@
+# Barcha ${...} qiymatlar loyiha ildizidagi .env dan o'qiladi (cp .env.example .env)
 services:
   db:
     image: postgres:16
@@ -7,7 +8,7 @@ services:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      - "54311:5432"
+      - "${POSTGRES_PUBLISH_PORT:-54311}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,14 +23,10 @@ services:
     container_name: savdopro-backend
     env_file:
       - .env
-    environment:
-      DB_ENGINE: django.db.backends.postgresql
-      DB_HOST: db
-      DB_PORT: 54311
     volumes:
       - ./backend:/app
     ports:
-      - "8011:8000"
+      - "${BACKEND_PUBLISH_PORT:-8011}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -38,13 +35,15 @@ services:
     build:
       context: ./frontend
     container_name: savdopro-frontend
+    env_file:
+      - .env
     environment:
-      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
     volumes:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "51711:5173"
+      - "${FRONTEND_PUBLISH_PORT:-51711}:5173"
     depends_on:
       - backend
 
