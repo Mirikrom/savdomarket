@@ -3,12 +3,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import PageHeader from '../../components/PageHeader.vue'
+import { useI18n } from '../../i18n'
 import { products as productsApi } from '../../services/catalog.service'
 import { stockMovements } from '../../services/inventory.service'
 import { useOrganizationStore } from '../../stores/organization'
 
 const router = useRouter()
 const org = useOrganizationStore()
+const { tr } = useI18n()
 
 const productList = ref([])
 const loading = ref(true)
@@ -94,12 +96,12 @@ onMounted(async () => {
 <template>
   <div>
     <PageHeader
-      title="Chiqim / Tahrirlash"
-      subtitle="Tovarni omborga qaytarish, yo‘qotish yoki qoldiqni tuzatish"
+      :title="tr('page.adjust.title')"
+      :subtitle="tr('page.adjust.subtitle')"
     >
       <template #actions>
         <button class="btn btn--ghost" @click="router.push('/app/inventory')">
-          ← Qoldiqlarga
+          {{ tr('page.adjust.backToStock') }}
         </button>
       </template>
     </PageHeader>

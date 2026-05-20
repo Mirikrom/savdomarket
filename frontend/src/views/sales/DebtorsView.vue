@@ -10,10 +10,12 @@ import { isOfflineMode } from '../../offline/connectivity'
 import { createOfflineDebtor, loadDebtorsMerged } from '../../offline/offlineDebtors'
 import { debtors as debtorsApi } from '../../services/debtors.service'
 import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
+import { numberLocaleForUi, useI18n } from '../../i18n'
 import { useOrganizationStore } from '../../stores/organization'
 
 const route = useRoute()
 const org = useOrganizationStore()
+const { tr, locale } = useI18n()
 
 const isPosMode = computed(() => {
   const q = route.query[POS_SHELL_QUERY_KEY]
@@ -35,12 +37,14 @@ const createForm = reactive({
   name: '',
   phone: '',
   note: '',
+  due_date: '',
 })
 
 const editForm = reactive({
   name: '',
   phone: '',
   note: '',
+  due_date: '',
 })
 
 const payForm = reactive({
@@ -49,12 +53,17 @@ const payForm = reactive({
   note: '',
 })
 
-const columns = [
-  { key: 'name', label: 'Ism', width: '200px' },
-  { key: 'phone', label: 'Telefon', width: '140px', formatter: (v) => v || '—' },
-  { key: 'balance_due', label: 'Qarz', width: '120px' },
-  { key: 'note', label: 'Izoh', formatter: (v) => v || '—' },
-]
+const dateLocale = computed(() => numberLocaleForUi(locale.value))
+
+const columns = computed(() => [
+  { key: 'name', label: tr('page.debtors.colName'), width: isPosMode.value ? '160px' : '180px' },
+  { key: 'first_credit_at', label: tr('page.debtors.colTakenAt'), width: '110px' },
+  { key: 'total_credit', label: tr('page.debtors.colTotal'), width: '110px' },
+  { key: 'total_paid', label: tr('page.debtors.colPaid'), width: '110px' },
+  { key: 'balance_due', label: tr('page.debtors.colRemaining'), width: '110px' },
+  { key: 'due_date', label: tr('page.debtors.colDueDate'), width: '100px' },
+  ...(isPosMode.value ? [] : [{ key: 'note', label: tr('page.debtors.colNote'), width: '120px' }]),
+])
 
 const filteredRows = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -71,9 +80,43 @@ const totalDebt = computed(() =>
   rows.value.reduce((sum, r) => sum + Number(r.balance_due || 0), 0),
 )
 
-function formatMoney(n) {
-  return Number(n || 0).toLocaleString('uz-UZ', { maximumFractionDigits: 0 })
+function numberLocale() {
+  return numberLocaleForUi(locale.value)
 }
+
+function formatMoney(n) {
+  const num = Number(n || 0).toLocaleString(numberLocale(), { maximumFractionDigits: 0 })
+  return `${num} ${tr('page.billing.currencySom')}`
+}
+
+function formatDate(v) {
+  if (!v) return '—'
+  return new Date(v).toLocaleDateString(dateLocale.value)
+}
+
+function formatDateTime(v) {
+  if (!v) return '—'
+  return new Date(v).toLocaleString(dateLocale.value, {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function isOverdue(row) {
+  if (!row.due_date || !Number(row.balance_due)) return false
+  const due = new Date(row.due_date)
+  due.setHours(23, 59, 59, 999)
+  return due < new Date()
+}
+
+const payModalTitle = computed(() => {
+  void locale.value
+  if (!selected.value) return tr('page.debtors.payTitle')
+  return tr('page.debtors.payTitleNamed', { name: selected.value.name || '—' })
+})
 
 async function fetchDebtors() {
   loading.value = true
@@ -103,6 +146,7 @@ function resetCreateForm() {
   createForm.name = ''
   createForm.phone = ''
   createForm.note = ''
+  createForm.due_date = ''
 }
 
 function openCreate() {
@@ -111,32 +155,35 @@ function openCreate() {
   createOpen.value = true
 }
 
+function toApiDate(v) {
+  const s = String(v || '').trim()
+  return s || null
+}
+
 async function submitCreate() {
   apiError.value = ''
   if (!createForm.name.trim()) {
-    apiError.value = 'Ism kiritilishi shart.'
+    apiError.value = tr('page.debtors.errNameRequired')
     return
   }
   saving.value = true
   try {
     const { orgId } = await resolvePosIds(org)
+    const payload = {
+      name: createForm.name.trim(),
+      phone: createForm.phone.trim(),
+      note: createForm.note.trim(),
+      due_date: toApiDate(createForm.due_date),
+    }
     if (isOfflineMode()) {
-      await createOfflineDebtor(orgId, {
-        name: createForm.name.trim(),
-        phone: createForm.phone.trim(),
-        note: createForm.note.trim(),
-      })
+      await createOfflineDebtor(orgId, payload)
     } else {
-      await debtorsApi.create({
-        name: createForm.name.trim(),
-        phone: createForm.phone.trim(),
-        note: createForm.note.trim(),
-      })
+      await debtorsApi.create(payload)
     }
     createOpen.value = false
     await fetchDebtors()
   } catch (error) {
-    apiError.value = error?.response?.data?.name?.[0] || error?.response?.data?.detail || 'Saqlab bo‘lmadi.'
+    apiError.value = error?.response?.data?.name?.[0] || error?.response?.data?.detail || tr('page.debtors.errSaveFailed')
   } finally {
     saving.value = false
   }
@@ -148,13 +195,14 @@ function openEdit(row) {
   editForm.name = row.name || ''
   editForm.phone = row.phone || ''
   editForm.note = row.note || ''
+  editForm.due_date = row.due_date || ''
   editOpen.value = true
 }
 
 async function submitEdit() {
   apiError.value = ''
   if (!editForm.name.trim()) {
-    apiError.value = 'Ism kiritilishi shart.'
+    apiError.value = tr('page.debtors.errNameRequired')
     return
   }
   saving.value = true
@@ -163,24 +211,25 @@ async function submitEdit() {
       name: editForm.name.trim(),
       phone: editForm.phone.trim(),
       note: editForm.note.trim(),
+      due_date: toApiDate(editForm.due_date),
     })
     const idx = rows.value.findIndex((r) => r.id === editingId.value)
     if (idx >= 0) rows.value[idx] = updated
     editOpen.value = false
   } catch (error) {
-    apiError.value = error?.response?.data?.name?.[0] || error?.response?.data?.detail || 'Yangilab bo‘lmadi.'
+    apiError.value = error?.response?.data?.name?.[0] || error?.response?.data?.detail || tr('page.debtors.errUpdateFailed')
   } finally {
     saving.value = false
   }
 }
 
 async function removeDebtor(row) {
-  if (!confirm(`"${row.name}" qarzdor ro‘yxatdan o‘chirilsinmi?`)) return
+  if (!confirm(tr('page.debtors.deleteConfirm', { name: row.name }))) return
   try {
     await debtorsApi.remove(row.id)
     rows.value = rows.value.filter((r) => r.id !== row.id)
   } catch (error) {
-    alert(error?.response?.data?.detail || 'O‘chirib bo‘lmadi.')
+    alert(error?.response?.data?.detail || tr('page.debtors.deleteFail'))
   }
 }
 
@@ -202,16 +251,16 @@ async function submitPay() {
   apiError.value = ''
   if (!selected.value) return
   if (!org.currentBranchId) {
-    apiError.value = 'Filial tanlanmagan.'
+    apiError.value = tr('page.debtors.errNoBranch')
     return
   }
   const amount = Number(payForm.amount || 0)
   if (amount <= 0) {
-    apiError.value = 'Summa 0 dan katta bo‘lishi kerak.'
+    apiError.value = tr('page.debtors.errAmountPositive')
     return
   }
   if (amount > Number(selected.value.balance_due)) {
-    apiError.value = 'Summa qarzdan oshmasligi kerak.'
+    apiError.value = tr('page.debtors.errAmountOver')
     return
   }
   saving.value = true
@@ -227,7 +276,7 @@ async function submitPay() {
     payOpen.value = false
   } catch (error) {
     const data = error?.response?.data
-    apiError.value = data?.amount?.[0] || data?.detail || 'To‘lov saqlanmadi.'
+    apiError.value = data?.amount?.[0] || data?.detail || tr('page.debtors.errPayFailed')
   } finally {
     saving.value = false
   }
@@ -240,32 +289,32 @@ onMounted(fetchDebtors)
   <div :class="['debtors-page', isPosMode ? 'debtors-page--pos' : '']">
     <PageHeader
       v-if="!isPosMode"
-      title="Qarzdorlar"
-      subtitle="Qarzdorlarni boshqarish, tahrirlash va qarzni qoplash"
+      :title="tr('page.debtors.title')"
+      :subtitle="tr('page.debtors.subtitle')"
     >
       <template #actions>
-        <button class="btn btn--primary" type="button" @click="openCreate">+ Yangi qarzdor</button>
+        <button class="btn btn--primary" type="button" @click="openCreate">{{ tr('page.debtors.addBtn') }}</button>
       </template>
     </PageHeader>
 
     <header v-else class="debtors-pos-head">
       <div>
-        <h1 class="debtors-pos-head__title">Qarzdorlar</h1>
-        <p class="debtors-pos-head__sub">Qarzni ko‘rish va pul kiritish</p>
+        <h1 class="debtors-pos-head__title">{{ tr('page.debtors.posTitle') }}</h1>
+        <p class="debtors-pos-head__sub">{{ tr('page.debtors.posSub') }}</p>
       </div>
-      <button class="debtors-pos-head__add" type="button" @click="openCreate">+ Yangi</button>
+      <button class="debtors-pos-head__add" type="button" @click="openCreate">{{ tr('page.debtors.posAddBtn') }}</button>
     </header>
 
     <div :class="['debtors-summary', isPosMode ? 'debtors-summary--pos card' : 'card']">
       <div>
-        <span class="debtors-summary__label">Jami qarz</span>
-        <strong class="debtors-summary__value">{{ formatMoney(totalDebt) }} so‘m</strong>
+        <span class="debtors-summary__label">{{ tr('page.debtors.summaryTotal') }}</span>
+        <strong class="debtors-summary__value">{{ formatMoney(totalDebt) }}</strong>
       </div>
       <div class="debtors-summary__search">
         <input
           v-model="search"
           type="search"
-          placeholder="Ism yoki telefon..."
+          :placeholder="tr('page.debtors.searchPlaceholder')"
           @keyup.enter="!isPosMode && fetchDebtors()"
         />
         <button
@@ -274,162 +323,163 @@ onMounted(fetchDebtors)
           type="button"
           @click="fetchDebtors"
         >
-          Qidirish
+          {{ tr('page.debtors.searchBtn') }}
         </button>
       </div>
     </div>
 
-    <!-- POS: karta ro‘yxati -->
-    <div v-if="isPosMode" class="debtors-pos-list">
-      <p v-if="loading" class="debtors-pos-empty">Yuklanmoqda...</p>
-      <p v-else-if="!filteredRows.length" class="debtors-pos-empty">Qarzdorlar yo‘q</p>
-      <article
-        v-for="row in filteredRows"
-        :key="row.id"
-        class="debtors-pos-card"
+    <div :class="['debtors-table-wrap', isPosMode ? 'debtors-table-wrap--pos card' : '']">
+      <DataTable
+        :columns="columns"
+        :rows="filteredRows"
+        :loading="loading"
+        :actions-label="tr('page.debtors.colActions')"
+        :empty-text="isPosMode ? tr('page.debtors.posEmpty') : tr('page.debtors.empty')"
       >
-        <div class="debtors-pos-card__main">
-          <strong class="debtors-pos-card__name">{{ row.name }}</strong>
-          <small v-if="row.phone" class="debtors-pos-card__phone">{{ row.phone }}</small>
-          <small v-if="row.note" class="debtors-pos-card__note">{{ row.note }}</small>
-        </div>
-        <div class="debtors-pos-card__debt">
-          <span>Qarz</span>
-          <strong :class="Number(row.balance_due) > 0 ? 'is-debt' : ''">
+        <template #cell:name="{ row }">
+          <div class="debtor-name-cell">
+            <strong>{{ row.name }}</strong>
+            <small v-if="row.phone">{{ row.phone }}</small>
+          </div>
+        </template>
+        <template #cell:first_credit_at="{ row }">
+          <span class="debtors-date">{{ formatDateTime(row.first_credit_at) }}</span>
+        </template>
+        <template #cell:total_credit="{ row }">
+          <span class="debtors-muted">{{ formatMoney(row.total_credit) }}</span>
+        </template>
+        <template #cell:total_paid="{ row }">
+          <span class="debtors-paid">{{ formatMoney(row.total_paid) }}</span>
+        </template>
+        <template #cell:balance_due="{ row }">
+          <strong :class="Number(row.balance_due) > 0 ? 'debt-amount' : 'debt-zero'">
             {{ formatMoney(row.balance_due) }}
           </strong>
-        </div>
-        <button
-          class="debtors-pos-card__pay"
-          type="button"
-          :disabled="!Number(row.balance_due)"
-          @click="openPay(row)"
-        >
-          Pul kiritish
-        </button>
-      </article>
+        </template>
+        <template #cell:due_date="{ row }">
+          <span :class="['debtors-date', isOverdue(row) ? 'debtors-date--overdue' : '']">
+            {{ formatDate(row.due_date) }}
+          </span>
+        </template>
+        <template #cell:note="{ value }">
+          <span class="debtors-muted">{{ value || '—' }}</span>
+        </template>
+        <template #actions="{ row }">
+          <button
+            class="btn btn--sm"
+            :class="isPosMode ? 'btn--success' : 'icon-btn'"
+            type="button"
+            :disabled="!Number(row.balance_due)"
+            @click="openPay(row)"
+          >
+            {{ isPosMode ? tr('page.debtors.posPayBtn') : tr('page.debtors.payDebt') }}
+          </button>
+          <template v-if="!isPosMode">
+            <button class="icon-btn" type="button" @click="openEdit(row)">{{ tr('page.categories.edit') }}</button>
+            <button class="icon-btn icon-btn--danger" type="button" @click="removeDebtor(row)">
+              {{ tr('page.categories.delete') }}
+            </button>
+          </template>
+        </template>
+      </DataTable>
     </div>
 
-    <!-- Admin: jadval + CRUD -->
-    <DataTable
-      v-else
-      :columns="columns"
-      :rows="rows"
-      :loading="loading"
-      empty-text="Qarzdorlar yo‘q."
-    >
-      <template #cell:balance_due="{ row }">
-        <strong :class="Number(row.balance_due) > 0 ? 'debt-amount' : 'debt-zero'">
-          {{ formatMoney(row.balance_due) }}
-        </strong>
-      </template>
-      <template #actions="{ row }">
-        <button
-          class="icon-btn"
-          type="button"
-          :disabled="!Number(row.balance_due)"
-          @click="openPay(row)"
-        >
-          Qarzni qoplash
-        </button>
-        <button class="icon-btn" type="button" @click="openEdit(row)">Tahrirlash</button>
-        <button class="icon-btn icon-btn--danger" type="button" @click="removeDebtor(row)">
-          O‘chirish
-        </button>
-      </template>
-    </DataTable>
-
-    <!-- Yangi qarzdor -->
     <AppModal
       :open="createOpen"
-      title="Yangi qarzdor"
+      :title="tr('page.debtors.createModalTitle')"
       :width="isPosMode ? '480px' : '440px'"
       @close="createOpen = false"
     >
       <div class="form-stack">
         <label class="field field--full">
-          <span>Ism *</span>
+          <span>{{ tr('page.debtors.fieldName') }}</span>
           <input v-model="createForm.name" type="text" autocomplete="name" />
         </label>
         <label class="field field--full">
-          <span>Telefon</span>
+          <span>{{ tr('page.debtors.fieldPhone') }}</span>
           <input v-model="createForm.phone" type="tel" autocomplete="tel" />
         </label>
         <label class="field field--full">
-          <span>Izoh</span>
+          <span>{{ tr('page.debtors.fieldDueDate') }}</span>
+          <input v-model="createForm.due_date" type="date" />
+        </label>
+        <label class="field field--full">
+          <span>{{ tr('page.debtors.fieldNote') }}</span>
           <input v-model="createForm.note" type="text" />
         </label>
         <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
       </div>
       <template #footer>
-        <button class="btn btn--ghost" type="button" @click="createOpen = false">Bekor</button>
+        <button class="btn btn--ghost" type="button" @click="createOpen = false">{{ tr('page.debtors.cancel') }}</button>
         <button class="btn btn--primary" type="button" :disabled="saving" @click="submitCreate">
-          {{ saving ? 'Saqlanmoqda...' : 'Saqlash' }}
+          {{ saving ? tr('page.debtors.saving') : tr('page.debtors.save') }}
         </button>
       </template>
     </AppModal>
 
-    <!-- Tahrirlash (admin) -->
-    <AppModal :open="editOpen" title="Qarzdorni tahrirlash" width="440px" @close="editOpen = false">
+    <AppModal :open="editOpen" :title="tr('page.debtors.editModalTitle')" width="440px" @close="editOpen = false">
       <div class="form-stack">
         <label class="field field--full">
-          <span>Ism *</span>
+          <span>{{ tr('page.debtors.fieldName') }}</span>
           <input v-model="editForm.name" type="text" />
         </label>
         <label class="field field--full">
-          <span>Telefon</span>
+          <span>{{ tr('page.debtors.fieldPhone') }}</span>
           <input v-model="editForm.phone" type="tel" />
         </label>
         <label class="field field--full">
-          <span>Izoh</span>
+          <span>{{ tr('page.debtors.fieldDueDate') }}</span>
+          <input v-model="editForm.due_date" type="date" />
+        </label>
+        <label class="field field--full">
+          <span>{{ tr('page.debtors.fieldNote') }}</span>
           <input v-model="editForm.note" type="text" />
         </label>
         <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
       </div>
       <template #footer>
-        <button class="btn btn--ghost" type="button" @click="editOpen = false">Bekor</button>
+        <button class="btn btn--ghost" type="button" @click="editOpen = false">{{ tr('page.debtors.cancel') }}</button>
         <button class="btn btn--primary" type="button" :disabled="saving" @click="submitEdit">
-          {{ saving ? 'Saqlanmoqda...' : 'Yangilash' }}
+          {{ saving ? tr('page.debtors.saving') : tr('page.debtors.update') }}
         </button>
       </template>
     </AppModal>
 
-    <!-- Pul kiritish -->
     <AppModal
       :open="payOpen"
-      :title="selected ? `${selected.name} — pul kiritish` : 'Pul kiritish'"
+      :title="payModalTitle"
       :width="isPosMode ? '480px' : '440px'"
       @close="payOpen = false"
     >
       <div v-if="selected" class="form-stack">
         <p class="pay-balance">
-          Joriy qarz: <strong>{{ formatMoney(selected.balance_due) }} so‘m</strong>
+          {{ tr('page.debtors.currentDebt') }} <strong>{{ formatMoney(selected.balance_due) }}</strong>
         </p>
         <label class="field field--full">
-          <span>Summa *</span>
+          <span>{{ tr('page.debtors.fieldAmount') }}</span>
           <input v-model="payForm.amount" type="number" min="0" step="0.01" />
         </label>
         <div class="quick-amounts">
-          <button type="button" @click="fillFullPay">To‘liq qoplash</button>
+          <button type="button" @click="fillFullPay">{{ tr('page.debtors.fillFull') }}</button>
         </div>
         <label class="field field--full">
-          <span>To‘lov usuli</span>
+          <span>{{ tr('page.debtors.payMethod') }}</span>
           <select v-model="payForm.method">
-            <option value="cash">Naqd</option>
-            <option value="card">Karta</option>
-            <option value="transfer">O‘tkazma</option>
+            <option value="cash">{{ tr('page.debtors.methodCash') }}</option>
+            <option value="card">{{ tr('page.debtors.methodCard') }}</option>
+            <option value="transfer">{{ tr('page.debtors.methodTransfer') }}</option>
           </select>
         </label>
         <label class="field field--full">
-          <span>Izoh</span>
+          <span>{{ tr('page.debtors.fieldNote') }}</span>
           <input v-model="payForm.note" type="text" />
         </label>
         <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
       </div>
       <template #footer>
-        <button class="btn btn--ghost" type="button" @click="payOpen = false">Bekor</button>
+        <button class="btn btn--ghost" type="button" @click="payOpen = false">{{ tr('page.debtors.cancel') }}</button>
         <button class="btn btn--primary" type="button" :disabled="saving" @click="submitPay">
-          {{ saving ? 'Saqlanmoqda...' : 'Saqlash' }}
+          {{ saving ? tr('page.debtors.saving') : tr('page.debtors.save') }}
         </button>
       </template>
     </AppModal>
@@ -449,7 +499,7 @@ onMounted(fetchDebtors)
 
 .debtors-summary--pos {
   border-radius: 14px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .debtors-summary__label {
@@ -521,99 +571,64 @@ onMounted(fetchDebtors)
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.28);
 }
 
-.debtors-pos-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.debtors-table-wrap {
+  overflow-x: auto;
 }
 
-.debtors-pos-empty {
-  text-align: center;
-  padding: 48px 16px;
-  color: #64748b;
-  font-size: 1rem;
-}
-
-.debtors-pos-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+.debtors-table-wrap--pos {
   border-radius: 14px;
-  padding: 16px;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto;
-  gap: 12px 16px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  padding: 0;
+  overflow: hidden;
 }
 
-.debtors-pos-card__main {
-  grid-column: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.debtors-pos-card__name {
-  font-size: 1.08rem;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.debtors-pos-card__phone,
-.debtors-pos-card__note {
+.debtors-table-wrap--pos :deep(.data-table table) {
   font-size: 0.88rem;
-  color: #64748b;
 }
 
-.debtors-pos-card__debt {
-  grid-column: 2;
-  grid-row: 1;
-  text-align: right;
+.debtors-table-wrap--pos :deep(.data-table th),
+.debtors-table-wrap--pos :deep(.data-table td) {
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
+.debtors-table-wrap--pos :deep(.data-table__actions-col) {
+  min-width: 120px;
+}
+
+.debtor-name-cell {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
-.debtors-pos-card__debt span {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #94a3b8;
-}
-
-.debtors-pos-card__debt strong {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #64748b;
-}
-
-.debtors-pos-card__debt strong.is-debt {
-  color: #dc2626;
-}
-
-.debtors-pos-card__pay {
-  grid-column: 1 / -1;
-  width: 100%;
-  border: 0;
-  border-radius: 12px;
-  padding: 14px;
-  font-size: 1rem;
+.debtor-name-cell strong {
   font-weight: 600;
-  cursor: pointer;
-  background: #16a34a;
-  color: #fff;
-  transition: opacity 0.15s ease;
 }
 
-.debtors-pos-card__pay:disabled {
-  background: #e2e8f0;
-  color: #94a3b8;
-  cursor: not-allowed;
+.debtor-name-cell small {
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
-.debtors-pos-card__pay:not(:disabled):hover {
-  background: #15803d;
+.debtors-date {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.debtors-date--overdue {
+  color: var(--danger, #dc2626);
+  font-weight: 600;
+}
+
+.debtors-muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.debtors-paid {
+  color: #16a34a;
+  font-size: 0.9rem;
 }
 
 .debt-amount {
@@ -622,6 +637,17 @@ onMounted(fetchDebtors)
 
 .debt-zero {
   color: var(--muted);
+}
+
+.btn--success {
+  background: #16a34a;
+  color: #fff;
+  border: 0;
+}
+
+.btn--success:disabled {
+  background: #e2e8f0;
+  color: #94a3b8;
 }
 
 .pay-balance {

@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import AuthShell from '../../components/AuthShell.vue'
+import { useT } from '../../i18n'
 import { login } from '../../services/auth.service'
 import { useAuthStore } from '../../stores/auth'
 
@@ -11,6 +12,19 @@ const route = useRoute()
 const auth = useAuthStore()
 const isLoading = ref(false)
 const apiError = ref('')
+
+const t = useT({
+  title: 'auth.login.title',
+  subtitle: 'auth.login.subtitle',
+  phone: 'auth.login.phone',
+  password: 'auth.login.password',
+  submit: 'auth.login.submit',
+  loading: 'auth.login.loading',
+  forgot: 'auth.login.forgot',
+  register: 'auth.login.register',
+  error: 'auth.login.error',
+  passwordChanged: 'auth.login.passwordChanged',
+})
 
 const passwordChangedHint = computed(
   () => route.query.password_changed === '1',
@@ -25,12 +39,10 @@ async function submit() {
   isLoading.value = true
   try {
     await login(form)
-    // /me/ chaqirib, foydalanuvchi turini aniqlaymiz: provider bo'lsa
-    // alohida panelga, oddiy bo'lsa /app'ga.
     try {
       await auth.fetchMe()
     } catch {
-      /* ignore — /app ga o'tib o'zi qayta yuklaydi */
+      /* ignore */
     }
     if (auth.isSuperuser) {
       router.push('/provider')
@@ -41,7 +53,7 @@ async function submit() {
     apiError.value =
       error?.response?.data?.detail ||
       error?.response?.data?.phone?.[0] ||
-      'Telefon yoki parol noto‘g‘ri.'
+      t.error.value
   } finally {
     isLoading.value = false
   }
@@ -49,24 +61,23 @@ async function submit() {
 </script>
 
 <template>
-  <AuthShell title="Tizimga kirish" subtitle="Telefon raqam va parol orqali kiring">
+  <AuthShell :title="t.title" :subtitle="t.subtitle">
     <p v-if="passwordChangedHint" class="form-message form-message--success">
-      Parol muvaffaqiyatli yangilandi. Yangi parol bilan qayta kiring.
+      {{ t.passwordChanged }}
     </p>
     <form class="auth-form" @submit.prevent="submit">
       <label class="field">
-        <span>Telefon raqam <i class="required">*</i></span>
+        <span>{{ t.phone }} <i class="required">*</i></span>
         <input
           v-model.trim="form.phone"
           type="tel"
           autocomplete="tel"
-          placeholder="+998 90 123 45 67"
           required
         />
       </label>
 
       <label class="field">
-        <span>Parol <i class="required">*</i></span>
+        <span>{{ t.password }} <i class="required">*</i></span>
         <input
           v-model="form.password"
           type="password"
@@ -78,13 +89,13 @@ async function submit() {
       <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
 
       <button class="btn btn--primary" type="submit" :disabled="isLoading">
-        {{ isLoading ? 'Kirilmoqda...' : 'Kirish' }}
+        {{ isLoading ? t.loading : t.submit }}
       </button>
     </form>
 
     <footer class="auth-footer">
-      <RouterLink to="/auth/forgot-password">Parolni unutdingizmi?</RouterLink>
-      <RouterLink to="/auth/register">Ro‘yxatdan o‘tish</RouterLink>
+      <RouterLink to="/auth/forgot-password">{{ t.forgot }}</RouterLink>
+      <RouterLink to="/auth/register">{{ t.register }}</RouterLink>
     </footer>
   </AuthShell>
 </template>

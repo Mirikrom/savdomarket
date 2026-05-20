@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import PageHeader from '../../components/PageHeader.vue'
+import { useI18n } from '../../i18n'
 import { products as productsApi } from '../../services/catalog.service'
 import { stockMovements } from '../../services/inventory.service'
 import { routeWithPosShell } from '../../posShellQuery'
@@ -12,6 +13,7 @@ import { useOrganizationStore } from '../../stores/organization'
 const router = useRouter()
 const auth = useAuthStore()
 const org = useOrganizationStore()
+const { tr } = useI18n()
 
 const productList = ref([])
 const loading = ref(true)
@@ -145,7 +147,7 @@ function leaveReceipt() {
 
 <template>
   <div>
-    <PageHeader title="Kirim qilish" subtitle="Omborga yangi tovar qabul qilish (bulk)">
+    <PageHeader :title="tr('page.receipt.title')" :subtitle="tr('page.receipt.subtitle')">
       <template #actions>
         <button type="button" class="btn btn--ghost" @click="leaveReceipt">
           {{ auth.isCashier ? '← Kassa' : '← Qoldiqlarga' }}

@@ -1,4 +1,5 @@
 <script setup>
+import AppPreferencesBar from './AppPreferencesBar.vue'
 import BrandLogo from './BrandLogo.vue'
 
 defineProps({
@@ -15,18 +16,11 @@ defineProps({
 
 <template>
   <main class="auth-page">
+    <AppPreferencesBar floating />
     <section class="auth-showcase">
       <div class="brand brand--logo">
         <BrandLogo variant="auth" />
       </div>
-      <p class="showcase__text">
-        Do'konlar uchun tezkor, ishonchli va kengayadigan savdo tizimi.
-      </p>
-      <ul class="showcase__list">
-        <li>Kassa va ombor bir tizimda</li>
-        <li>Role va permission boshqaruvi</li>
-        <li>Lite va Pro paketlar</li>
-      </ul>
     </section>
 
     <section class="auth-card">

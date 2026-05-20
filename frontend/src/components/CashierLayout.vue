@@ -2,10 +2,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
+import AppPreferencesBar from './AppPreferencesBar.vue'
 import BrandLogo from './BrandLogo.vue'
 import ConnectivityStatusDot from './ConnectivityStatusDot.vue'
 import PosNavIcon from './PosNavIcon.vue'
 import { routeWithPosShell } from '../posShellQuery'
+import { useI18n } from '../i18n'
 import { useAuthStore } from '../stores/auth'
 import { useOrganizationStore } from '../stores/organization'
 import { logout as logoutService } from '../services/auth.service'
@@ -14,6 +16,7 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const org = useOrganizationStore()
+const { tr, branchLabel } = useI18n()
 
 const MAIN_TAB_KEYS = ['pos', 'sales', 'products']
 
@@ -24,16 +27,16 @@ const extraNavOpen = ref(false)
 
 const allTabs = computed(() => {
   const base = [
-    { key: 'pos', to: routeWithPosShell('/app/pos'), label: 'Kassa', icon: 'pos' },
-    { key: 'sales', to: routeWithPosShell('/app/sales'), label: 'Savdolar', icon: 'receipt' },
-    { key: 'products', to: routeWithPosShell('/app/products'), label: 'Mahsulot', icon: 'box' },
-    { key: 'debtors', to: routeWithPosShell('/app/debtors'), label: 'Qarzdorlar', icon: 'wallet' },
+    { key: 'pos', to: routeWithPosShell('/app/pos'), label: tr('posShell.tab.pos'), icon: 'pos' },
+    { key: 'sales', to: routeWithPosShell('/app/sales'), label: tr('posShell.tab.sales'), icon: 'receipt' },
+    { key: 'products', to: routeWithPosShell('/app/products'), label: tr('posShell.tab.products'), icon: 'box' },
+    { key: 'debtors', to: routeWithPosShell('/app/debtors'), label: tr('posShell.tab.debtors'), icon: 'wallet' },
   ]
   if (auth.isAdmin) {
     base.push({
       key: 'admin',
       to: { name: 'dashboard' },
-      label: 'Boshqaruv paneli',
+      label: tr('posShell.tab.admin'),
       icon: 'admin',
     })
   }
@@ -51,6 +54,9 @@ const extraNavActive = computed(() =>
     return false
   }),
 )
+
+/** Kassa: til/mavzu `PosView` topbar bilan bir qatorda */
+const showPosShellPrefsToolbar = computed(() => route.name !== 'pos')
 
 watch(
   () => route.path,
@@ -117,12 +123,17 @@ async function logout() {
   <div class="pos-shell">
     <!-- ============ Sidebar (desktop) ============ -->
     <aside class="pos-side">
-      <div class="pos-side__logo">
+      <RouterLink
+        :to="routeWithPosShell('/app/pos')"
+        class="pos-side__logo"
+        :aria-label="tr('posShell.logoToPos')"
+        @click="closeExtraNav"
+      >
         <div class="pos-side__logo-wrap">
           <BrandLogo variant="sidebar-compact" />
           <ConnectivityStatusDot />
         </div>
-      </div>
+      </RouterLink>
 
       <nav class="pos-side__nav">
         <RouterLink
@@ -145,7 +156,7 @@ async function logout() {
             class="pos-side__item pos-side__item--toggle"
             :class="{ 'is-open': extraNavOpen, 'has-active-child': extraNavActive }"
             :aria-expanded="extraNavOpen"
-            aria-label="Qo‘shimcha bo‘limlar"
+            :aria-label="tr('posShell.extraNavAria')"
             @click="toggleExtraNav"
           >
             <span class="pos-side__icon pos-side__icon--chevron">
@@ -153,7 +164,7 @@ async function logout() {
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </span>
-            <span class="pos-side__label">Yana</span>
+            <span class="pos-side__label">{{ tr('posShell.more') }}</span>
           </button>
 
           <Transition name="pos-extra">
@@ -188,12 +199,17 @@ async function logout() {
     <!-- ============ Main ============ -->
     <div class="pos-body">
       <main class="pos-content">
-        <div v-if="isLoading" class="pos-loading">
-          <div class="pos-spinner" />
-          <span>Yuklanmoqda...</span>
+        <div v-if="showPosShellPrefsToolbar" class="pos-content__toolbar">
+          <AppPreferencesBar dark-surface />
         </div>
-        <div v-else class="pos-content__view">
-          <RouterView />
+        <div class="pos-content__body">
+          <div v-if="isLoading" class="pos-loading">
+            <div class="pos-spinner" />
+            <span>{{ tr('posShell.loading') }}</span>
+          </div>
+          <div v-else class="pos-content__view">
+            <RouterView />
+          </div>
         </div>
       </main>
     </div>
@@ -238,7 +254,7 @@ async function logout() {
         class="pos-tab pos-tab--more"
         :class="{ 'is-open': extraNavOpen, 'is-active': extraNavActive }"
         :aria-expanded="extraNavOpen"
-        aria-label="Yana"
+            :aria-label="tr('posShell.more')"
         @click="toggleExtraNav"
       >
         <span class="pos-tab__icon pos-tab__icon--chevron">
@@ -246,7 +262,7 @@ async function logout() {
             <polyline points="6 9 12 15 18 9" />
           </svg>
         </span>
-        <span class="pos-tab__label">Yana</span>
+        <span class="pos-tab__label">{{ tr('posShell.more') }}</span>
       </button>
     </nav>
 
@@ -257,11 +273,11 @@ async function logout() {
           <span class="pos-user-pop__avatar">{{ auth.initials || '?' }}</span>
           <div>
             <strong>{{ auth.fullName }}</strong>
-            <small>Sotuvchi · {{ org.currentBranch?.name || '—' }}</small>
+            <small>{{ tr('posShell.user.roleLine') }} · {{ branchLabel(org.currentBranch) }}</small>
           </div>
         </div>
         <div v-if="org.branches.length > 1" class="pos-user-pop__branch">
-          <label for="pos-branch-select">Filial</label>
+          <label for="pos-branch-select">{{ tr('posShell.user.branch') }}</label>
           <select
             id="pos-branch-select"
             class="pos-user-pop__select"
@@ -269,7 +285,7 @@ async function logout() {
             @change="onBranchChange"
           >
             <option v-for="b in org.branches" :key="b.id" :value="b.id">
-              {{ b.name }}
+              {{ branchLabel(b) }}
             </option>
           </select>
         </div>
@@ -295,7 +311,7 @@ async function logout() {
             <path d="M3 3h18v4H3z" />
             <path d="M5 7v14h14V7" />
           </svg>
-          Admin bo‘limi
+          {{ tr('posShell.user.admin') }}
         </button>
         <button type="button" class="pos-user-pop__logout" @click="logout">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -303,7 +319,7 @@ async function logout() {
             <polyline points="16 17 21 12 16 7" />
             <line x1="21" y1="12" x2="9" y2="12" />
           </svg>
-          Tizimdan chiqish
+          {{ tr('posShell.user.logout') }}
         </button>
       </div>
     </Transition>
@@ -360,6 +376,19 @@ async function logout() {
   justify-content: center;
   width: 100%;
   padding: 0 4px;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 12px;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.pos-side__logo:hover {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.pos-side__logo:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 
 .pos-side__logo-wrap {
@@ -512,8 +541,24 @@ async function logout() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 24px;
+  padding: 12px 20px 20px;
   background: var(--pos-bg);
+}
+
+.pos-content__toolbar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.pos-content__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .pos-content__view {
@@ -681,8 +726,7 @@ async function logout() {
     display: none;
   }
   .pos-content {
-    padding: 14px;
-    padding-bottom: 92px; /* tabbar */
+    padding: 10px 12px 92px; /* tabbar */
     box-sizing: border-box;
   }
   .pos-tabbar-extra {
@@ -811,5 +855,51 @@ html.pos-shell-lock,
 html.pos-shell-lock body {
   overflow: hidden;
   height: 100%;
+}
+
+/* Tungi rejim — scoped .pos-shell dan keyin (ustunlik tartibi) */
+[data-theme='dark'] .pos-shell {
+  --pos-bg: #0f172a;
+  --pos-side-bg: #0f172a;
+  --pos-side-fg: #94a3b8;
+  --pos-side-active: #f8fafc;
+  --pos-accent: #3b82f6;
+  --pos-card: #1e293b;
+  --pos-line: #334155;
+  --pos-text: #f1f5f9;
+  --pos-muted: #94a3b8;
+}
+
+[data-theme='dark'] .pos-side__avatar {
+  background: #334155;
+  color: #f1f5f9;
+  border-color: #475569;
+}
+
+[data-theme='dark'] .pos-side__item:hover {
+  color: var(--pos-side-active);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+[data-theme='dark'] .pos-user-pop__select {
+  background: #0f172a;
+  color: var(--pos-text);
+}
+
+@media (max-width: 880px) {
+  [data-theme='dark'] .pos-tabbar {
+    background: #1e293b;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  [data-theme='dark'] .pos-tabbar-extra {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+  }
+
+  [data-theme='dark'] .pos-tabbar-extra__item {
+    color: #e2e8f0;
+  }
 }
 </style>

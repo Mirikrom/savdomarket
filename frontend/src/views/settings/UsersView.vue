@@ -5,11 +5,13 @@ import AppModal from '../../components/AppModal.vue'
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { organizationUsers, roles } from '../../services/users.service'
+import { useI18n } from '../../i18n'
 import { useAuthStore } from '../../stores/auth'
 import { useOrganizationStore } from '../../stores/organization'
 
 const auth = useAuthStore()
 const org = useOrganizationStore()
+const { tr } = useI18n()
 
 const rows = ref([])
 const rolesList = ref([])
@@ -204,11 +206,11 @@ onMounted(fetchData)
 <template>
   <div>
     <PageHeader
-      title="Xodimlar"
-      subtitle="Tashkilotga biriktirilgan foydalanuvchilar va ularning rollari"
+      :title="tr('page.users.title')"
+      :subtitle="tr('page.users.subtitle')"
     >
       <template #actions>
-        <button class="btn btn--primary" @click="openInvite">+ Yangi xodim</button>
+        <button class="btn btn--primary" @click="openInvite">{{ tr('page.users.addBtn') }}</button>
       </template>
     </PageHeader>
 
@@ -216,7 +218,7 @@ onMounted(fetchData)
       :columns="columns"
       :rows="rows"
       :loading="loading"
-      empty-text="Hozircha xodimlar qo‘shilmagan."
+      :empty-text="tr('page.users.emptyTable')"
     >
       <template #cell:user_detail="{ row }">
         <div class="user-cell">
@@ -255,7 +257,7 @@ onMounted(fetchData)
 
     <AppModal
       :open="inviteOpen"
-      title="Yangi xodim qo'shish"
+      :title="tr('page.users.modalAdd')"
       width="540px"
       @close="closeInvite"
     >
@@ -331,7 +333,7 @@ onMounted(fetchData)
       </template>
     </AppModal>
 
-    <AppModal :open="editOpen" title="Xodimni tahrirlash" @close="editOpen = false">
+    <AppModal :open="editOpen" :title="tr('page.users.modalEdit')" @close="editOpen = false">
       <form class="auth-form" @submit.prevent="submitEdit">
         <label class="field">
           <span>Rol</span>

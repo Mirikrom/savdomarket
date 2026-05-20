@@ -1,15 +1,41 @@
 <script setup>
-import { computed, onUnmounted, reactive, ref } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 
 import AuthShell from '../../components/AuthShell.vue'
+import { translate, useT, useTParam } from '../../i18n'
 import {
   registerComplete,
   registerRequestOtp,
   registerVerifyOtp,
 } from '../../services/auth.service'
+import { useUiStore } from '../../stores/ui'
 
 const router = useRouter()
+const ui = useUiStore()
+const { locale } = storeToRefs(ui)
+
+const t = useT({
+  title: 'auth.register.title',
+  subtitle: 'auth.register.subtitle',
+  phone: 'auth.login.phone',
+  getCode: 'auth.register.getCode',
+  sending: 'auth.register.sending',
+  otpLabel: 'auth.register.otpLabel',
+  continue: 'auth.register.continue',
+  checking: 'auth.register.checking',
+  resend: 'auth.register.resend',
+  changePhone: 'auth.register.changePhone',
+  fullName: 'auth.register.fullName',
+  shopName: 'auth.register.shopName',
+  email: 'auth.register.email',
+  password: 'auth.register.password',
+  passwordConfirm: 'auth.register.passwordConfirm',
+  create: 'auth.register.create',
+  creating: 'auth.register.creating',
+  hasAccount: 'auth.register.hasAccount',
+})
 const step = ref(1)
 const isLoading = ref(false)
 const apiError = ref('')
@@ -43,6 +69,21 @@ function startCountdown(seconds) {
 onUnmounted(() => clearInterval(countdownTimer))
 
 const canResend = computed(() => secondsLeft.value === 0)
+
+const otpHint = useTParam('auth.register.otpHint', () => ({ phone: maskedPhone.value }))
+
+const resendLabel = computed(() => {
+  if (canResend.value) return t.resend.value
+  return translate(locale.value, 'auth.register.resendWait', { s: secondsLeft.value })
+})
+
+watch(
+  locale,
+  (lang) => {
+    profileForm.preferred_language = lang
+  },
+  { immediate: true },
+)
 
 function extractError(error, fallback) {
   const data = error?.response?.data
@@ -140,24 +181,14 @@ function backToPhone() {
 </script>
 
 <template>
-  <AuthShell
-    title="Ro‘yxatdan o‘tish"
-    subtitle="Telefon raqamingizni tasdiqlab, hisob oching"
-  >
-    <ol class="stepper">
-      <li :class="{ 'is-active': step >= 1, 'is-done': step > 1 }">Telefon</li>
-      <li :class="{ 'is-active': step >= 2, 'is-done': step > 2 }">Kod</li>
-      <li :class="{ 'is-active': step >= 3 }">Profil</li>
-    </ol>
-
+  <AuthShell :title="t.title" :subtitle="t.subtitle">
     <form v-if="step === 1" class="auth-form" @submit.prevent="submitPhone">
       <label class="field">
-        <span>Telefon raqam <i class="required">*</i></span>
+        <span>{{ t.phone }} <i class="required">*</i></span>
         <input
           v-model.trim="phoneForm.phone"
           type="tel"
           autocomplete="tel"
-          placeholder="+998 90 123 45 67"
           required
         />
       </label>
@@ -165,17 +196,15 @@ function backToPhone() {
       <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
 
       <button class="btn btn--primary" type="submit" :disabled="isLoading">
-        {{ isLoading ? 'Yuborilmoqda...' : 'Kod olish' }}
+        {{ isLoading ? t.sending : t.getCode }}
       </button>
     </form>
 
     <form v-else-if="step === 2" class="auth-form" @submit.prevent="submitOtp">
-      <p class="form-hint">
-        <strong>{{ maskedPhone }}</strong> raqamga 6 xonali kod yubordik.
-      </p>
+      <p class="form-hint">{{ otpHint }}</p>
 
       <label class="field">
-        <span>Tasdiqlash kodi <i class="required">*</i></span>
+        <span>{{ t.otpLabel }} <i class="required">*</i></span>
         <input
           v-model.trim="otpForm.code"
           class="otp-input"
@@ -191,53 +220,40 @@ function backToPhone() {
       <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
 
       <button class="btn btn--primary" type="submit" :disabled="isLoading">
-        {{ isLoading ? 'Tekshirilmoqda...' : 'Davom etish' }}
+        {{ isLoading ? t.checking : t.continue }}
       </button>
 
       <div class="resend">
         <button type="button" class="link-btn" :disabled="!canResend" @click="resendOtp">
-          {{ canResend ? 'Kodni qayta yuborish' : `Qayta yuborish ${secondsLeft}s` }}
+          {{ resendLabel }}
         </button>
-        <button type="button" class="link-btn" @click="backToPhone">Raqamni o‘zgartirish</button>
+        <button type="button" class="link-btn" @click="backToPhone">{{ t.changePhone }}</button>
       </div>
     </form>
 
     <form v-else class="auth-form auth-form--grid" @submit.prevent="submitProfile">
       <label class="field field--full">
-        <span>To‘liq ism <i class="required">*</i></span>
+        <span>{{ t.fullName }} <i class="required">*</i></span>
         <input v-model.trim="profileForm.full_name" type="text" required />
       </label>
 
       <label class="field field--full">
-        <span>Magazin nomi</span>
-        <input
-          v-model.trim="profileForm.organization_name"
-          type="text"
-          placeholder="Masalan: Ali Market"
-        />
+        <span>{{ t.shopName }}</span>
+        <input v-model.trim="profileForm.organization_name" type="text" />
       </label>
 
       <label class="field field--full">
-        <span>Email (ixtiyoriy)</span>
+        <span>{{ t.email }}</span>
         <input v-model.trim="profileForm.email" type="email" />
       </label>
 
-      <label class="field">
-        <span>Til</span>
-        <select v-model="profileForm.preferred_language">
-          <option value="uz">O‘zbekcha</option>
-          <option value="ru">Русский</option>
-          <option value="en">English</option>
-        </select>
-      </label>
-
-      <label class="field">
-        <span>Parol <i class="required">*</i></span>
+      <label class="field field--full">
+        <span>{{ t.password }} <i class="required">*</i></span>
         <input v-model="profileForm.password" type="password" minlength="8" required />
       </label>
 
       <label class="field field--full">
-        <span>Parolni tasdiqlang <i class="required">*</i></span>
+        <span>{{ t.passwordConfirm }} <i class="required">*</i></span>
         <input
           v-model="profileForm.password_confirm"
           type="password"
@@ -254,12 +270,12 @@ function backToPhone() {
       </p>
 
       <button class="btn btn--primary field--full" type="submit" :disabled="isLoading">
-        {{ isLoading ? 'Yaratilmoqda...' : 'Hisobni yaratish' }}
+        {{ isLoading ? t.creating : t.create }}
       </button>
     </form>
 
     <footer class="auth-footer">
-      <RouterLink to="/auth/login">Akkauntingiz bormi? Kirish</RouterLink>
+      <RouterLink to="/auth/login">{{ t.hasAccount }}</RouterLink>
     </footer>
   </AuthShell>
 </template>

@@ -4,12 +4,14 @@ import { useRouter } from 'vue-router'
 
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import { useI18n } from '../../i18n'
 import { products as productsApi } from '../../services/catalog.service'
 import { stockMovements } from '../../services/inventory.service'
 import { useOrganizationStore } from '../../stores/organization'
 
 const router = useRouter()
 const org = useOrganizationStore()
+const { tr } = useI18n()
 
 const rows = ref([])
 const productList = ref([])
@@ -107,25 +109,25 @@ onMounted(async () => {
 <template>
   <div>
     <PageHeader
-      title="Ombor harakatlari"
-      subtitle="Barcha kirim, chiqim va tuzatishlar tarixi"
+      :title="tr('page.movements.title')"
+      :subtitle="tr('page.movements.subtitle')"
     >
       <template #actions>
         <button class="btn btn--ghost" @click="router.push('/app/inventory')">
-          ← Qoldiqlar
+          {{ tr('page.movements.backStock') }}
         </button>
         <button class="btn btn--primary" @click="router.push('/app/inventory/receipt')">
-          + Kirim
+          {{ tr('page.movements.receiptBtn') }}
         </button>
         <button class="btn btn--ghost" @click="router.push('/app/inventory/adjust')">
-          − Chiqim
+          {{ tr('page.movements.issueBtn') }}
         </button>
       </template>
     </PageHeader>
 
     <div class="card filter-bar">
       <select v-model="filters.branch" class="filter-select">
-        <option value="">Barcha filiallar</option>
+        <option value="">{{ tr('page.movements.filterAllBranches') }}</option>
         <option v-for="b in org.branches" :key="b.id" :value="b.id">{{ b.name }}</option>
       </select>
 

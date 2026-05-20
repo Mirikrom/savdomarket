@@ -1,19 +1,42 @@
 <script setup>
 import { computed, onUnmounted, reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 
 import AuthShell from '../../components/AuthShell.vue'
+import { translate, useT, useTParam } from '../../i18n'
 import {
   forgotPasswordRequest,
   forgotPasswordVerify,
   resetPassword,
 } from '../../services/auth.service'
+import { useUiStore } from '../../stores/ui'
 
 const router = useRouter()
+const ui = useUiStore()
+const { locale } = storeToRefs(ui)
 const step = ref(1)
 const isLoading = ref(false)
 const apiError = ref('')
 const successMessage = ref('')
+
+const t = useT({
+  title: 'auth.forgot.title',
+  subtitle: 'auth.forgot.subtitle',
+  phone: 'auth.login.phone',
+  getCode: 'auth.register.getCode',
+  sending: 'auth.register.sending',
+  otpLabel: 'auth.register.otpLabel',
+  continue: 'auth.register.continue',
+  checking: 'auth.register.checking',
+  resend: 'auth.register.resend',
+  changePhone: 'auth.register.changePhone',
+  newPassword: 'auth.forgot.newPassword',
+  confirmPassword: 'auth.forgot.confirmPassword',
+  save: 'auth.forgot.save',
+  saving: 'auth.forgot.saving',
+  backLogin: 'auth.forgot.backLogin',
+})
 
 const phoneForm = reactive({ phone: '' })
 const otpForm = reactive({ code: '' })
@@ -23,6 +46,13 @@ const resetToken = ref('')
 const maskedPhone = ref('')
 const secondsLeft = ref(0)
 let countdownTimer = null
+
+const otpHint = useTParam('auth.forgot.otpHint', () => ({ phone: maskedPhone.value }))
+
+const resendLabel = computed(() => {
+  if (canResend.value) return t.resend.value
+  return translate(locale.value, 'auth.register.resendWait', { s: secondsLeft.value })
+})
 
 function startCountdown(seconds) {
   secondsLeft.value = seconds
@@ -128,21 +158,14 @@ function backToPhone() {
 </script>
 
 <template>
-  <AuthShell title="Parolni tiklash" subtitle="Telefon orqali tasdiqlab, yangi parol o‘rnating">
-    <ol class="stepper">
-      <li :class="{ 'is-active': step >= 1, 'is-done': step > 1 }">Telefon</li>
-      <li :class="{ 'is-active': step >= 2, 'is-done': step > 2 }">Kod</li>
-      <li :class="{ 'is-active': step >= 3 }">Yangi parol</li>
-    </ol>
-
+  <AuthShell :title="t.title" :subtitle="t.subtitle">
     <form v-if="step === 1" class="auth-form" @submit.prevent="submitPhone">
       <label class="field">
-        <span>Telefon raqam <i class="required">*</i></span>
+        <span>{{ t.phone }} <i class="required">*</i></span>
         <input
           v-model.trim="phoneForm.phone"
           type="tel"
           autocomplete="tel"
-          placeholder="+998 90 123 45 67"
           required
         />
       </label>
@@ -150,17 +173,15 @@ function backToPhone() {
       <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
 
       <button class="btn btn--primary" type="submit" :disabled="isLoading">
-        {{ isLoading ? 'Yuborilmoqda...' : 'Kod olish' }}
+        {{ isLoading ? t.sending : t.getCode }}
       </button>
     </form>
 
     <form v-else-if="step === 2" class="auth-form" @submit.prevent="submitOtp">
-      <p class="form-hint">
-        Agar raqam bazada bo‘lsa, <strong>{{ maskedPhone }}</strong> ga kod yubordik.
-      </p>
+      <p class="form-hint">{{ otpHint }}</p>
 
       <label class="field">
-        <span>Tasdiqlash kodi <i class="required">*</i></span>
+        <span>{{ t.otpLabel }} <i class="required">*</i></span>
         <input
           v-model.trim="otpForm.code"
           class="otp-input"
@@ -176,20 +197,20 @@ function backToPhone() {
       <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
 
       <button class="btn btn--primary" type="submit" :disabled="isLoading">
-        {{ isLoading ? 'Tekshirilmoqda...' : 'Davom etish' }}
+        {{ isLoading ? t.checking : t.continue }}
       </button>
 
       <div class="resend">
         <button type="button" class="link-btn" :disabled="!canResend" @click="resendOtp">
-          {{ canResend ? 'Kodni qayta yuborish' : `Qayta yuborish ${secondsLeft}s` }}
+          {{ resendLabel }}
         </button>
-        <button type="button" class="link-btn" @click="backToPhone">Raqamni o‘zgartirish</button>
+        <button type="button" class="link-btn" @click="backToPhone">{{ t.changePhone }}</button>
       </div>
     </form>
 
     <form v-else class="auth-form" @submit.prevent="submitPassword">
       <label class="field">
-        <span>Yangi parol <i class="required">*</i></span>
+        <span>{{ t.newPassword }} <i class="required">*</i></span>
         <input
           v-model="passwordForm.new_password"
           type="password"
@@ -200,7 +221,7 @@ function backToPhone() {
       </label>
 
       <label class="field">
-        <span>Parolni tasdiqlang <i class="required">*</i></span>
+        <span>{{ t.confirmPassword }} <i class="required">*</i></span>
         <input
           v-model="passwordForm.new_password_confirm"
           type="password"
@@ -214,12 +235,12 @@ function backToPhone() {
       <p v-if="successMessage" class="form-message form-message--success">{{ successMessage }}</p>
 
       <button class="btn btn--primary" type="submit" :disabled="isLoading">
-        {{ isLoading ? 'Saqlanmoqda...' : 'Parolni yangilash' }}
+        {{ isLoading ? t.saving : t.save }}
       </button>
     </form>
 
     <footer class="auth-footer">
-      <RouterLink to="/auth/login">Kirish sahifasiga qaytish</RouterLink>
+      <RouterLink to="/auth/login">{{ t.backLogin }}</RouterLink>
     </footer>
   </AuthShell>
 </template>

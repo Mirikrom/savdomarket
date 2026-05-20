@@ -6,11 +6,14 @@ import App from './App.vue'
 import router from './router'
 import { initOfflineSync } from './offline/init'
 import { useOrganizationStore } from './stores/organization'
+import { useUiStore } from './stores/ui'
 
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 app.use(router)
+
+useUiStore(pinia).init()
 
 initOfflineSync(async () => {
   const org = useOrganizationStore(pinia)

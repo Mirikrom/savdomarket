@@ -1,19 +1,17 @@
 <script setup>
 import PageHeader from '../../components/PageHeader.vue'
+import { useI18n } from '../../i18n'
+
+const { tr } = useI18n()
 </script>
 
 <template>
   <div>
-    <PageHeader
-      title="Hisobotlar"
-      subtitle="Savdolar, ombor harakati va daromad bo‘yicha tahliliy hisobotlar"
-    />
+    <PageHeader :title="tr('page.reports.title')" :subtitle="tr('page.reports.subtitle')" />
     <div class="placeholder">
-      <h2>Hisobotlar moduli tayyorlanmoqda</h2>
+      <h2>{{ tr('page.reports.placeholderTitle') }}</h2>
       <p>
-        Bu yerda kunlik/oylik savdolar, eng ko‘p sotilgan mahsulotlar, kassir kesimida, sana
-        oralig‘ida hisobotlar paydo bo‘ladi. Keyingi bosqichda backend reports endpoint‘i bilan
-        ulaymiz.
+        {{ tr('page.reports.placeholderBody') }}
       </p>
     </div>
   </div>

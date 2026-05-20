@@ -12,6 +12,27 @@
   --radius-lg: 20px;
   --radius-md: 12px;
   --radius-sm: 10px;
+  --prefs-bg: rgba(255, 255, 255, 0.92);
+  --prefs-border: #dbe3ef;
+  --prefs-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  --body-gradient: radial-gradient(circle at 8% 2%, #e8effb 0, #f2f5fa 45%);
+}
+
+[data-theme='dark'] {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-soft: #162032;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --line: #334155;
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --danger: #f87171;
+  --success: #34d399;
+  --prefs-bg: rgba(30, 41, 59, 0.95);
+  --prefs-border: #475569;
+  --prefs-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --body-gradient: radial-gradient(circle at 8% 2%, #1e3a5f 0, #0f172a 50%);
 }
 
 *,
@@ -25,10 +46,184 @@ body {
   min-width: 320px;
   min-height: 100vh;
   font-family: Inter, "Segoe UI", Roboto, sans-serif;
-  background: radial-gradient(circle at 8% 2%, #e8effb 0, #f2f5fa 45%);
+  background: var(--body-gradient);
   color: var(--text);
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
+  transition: background 0.25s ease, color 0.2s ease;
+}
+
+.app-root {
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Til / mavzu — layout ichida (fixed emas); login uchun alohida modifikator */
+.app-prefs {
+  position: relative;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  background: var(--prefs-bg);
+  border: 1px solid var(--prefs-border);
+  border-radius: 999px;
+  box-shadow: var(--prefs-shadow);
+  backdrop-filter: blur(10px);
+  flex-shrink: 0;
+}
+
+.app-prefs--floating {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 1300;
+}
+
+/* Qora header / POS fonida */
+.app-prefs--on-dark {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.28);
+}
+
+.app-prefs--on-dark .app-prefs__theme {
+  background: rgba(255, 255, 255, 0.14);
+  color: #f8fafc;
+}
+
+.app-prefs--on-dark .app-prefs__theme:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.app-prefs__lang-dropdown {
+  position: relative;
+}
+
+.app-prefs__lang-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  min-width: 4.25rem;
+  justify-content: center;
+  transition: background 0.15s, box-shadow 0.2s;
+}
+
+.app-prefs__lang-trigger:hover {
+  background: var(--primary-hover);
+}
+
+.app-prefs__lang-trigger.is-open {
+  box-shadow: 0 4px 14px rgba(31, 79, 163, 0.35);
+}
+
+.app-prefs__lang-trigger-label {
+  line-height: 1;
+}
+
+.app-prefs__lang-chevron {
+  display: block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid rgba(255, 255, 255, 0.9);
+  margin-top: 1px;
+  transition: transform 0.25s ease;
+}
+
+.app-prefs__lang-trigger.is-open .app-prefs__lang-chevron {
+  transform: rotate(180deg);
+}
+
+.app-prefs__lang-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  left: 0;
+  min-width: 100%;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    max-height 0.32s ease,
+    opacity 0.22s ease;
+  border-radius: var(--radius-md);
+  box-shadow: var(--prefs-shadow);
+}
+
+.app-prefs__lang-panel.is-open {
+  max-height: 200px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.app-prefs__lang-list {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.app-prefs__lang-option {
+  display: block;
+  width: 100%;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.app-prefs__lang-option:hover {
+  background: var(--surface-soft);
+}
+
+.app-prefs__lang-option.is-current {
+  background: var(--primary);
+  color: #fff;
+}
+
+.app-prefs__theme {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-soft);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.app-prefs__theme:hover {
+  background: var(--line);
+  transform: scale(1.05);
+}
+
+.app-prefs__icon {
+  font-size: 1.1rem;
+  line-height: 1;
 }
 
 html {
@@ -120,7 +315,8 @@ a:hover {
   padding: 34px 30px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: center;
   min-height: 520px;
 }
 
@@ -148,22 +344,6 @@ a:hover {
   background: #53b3ff;
 }
 
-.showcase__text {
-  margin: 32px 0 18px;
-  color: #dce7ff;
-  font-size: 0.95rem;
-  line-height: 1.6;
-}
-
-.showcase__list {
-  margin: 0;
-  padding-left: 18px;
-  color: #edf3ff;
-  display: grid;
-  gap: 8px;
-  font-size: 0.92rem;
-}
-
 .auth-card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -173,6 +353,19 @@ a:hover {
   display: flex;
   flex-direction: column;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+[data-theme='dark'] .auth-card {
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='dark'] .field input,
+[data-theme='dark'] .field select,
+[data-theme='dark'] .field textarea {
+  background: var(--surface-soft);
+  color: var(--text);
+  border-color: var(--line);
 }
 
 .auth-card__header h2 {
@@ -480,6 +673,19 @@ a:hover {
   align-items: center;
   gap: 10px;
   padding: 0 8px 18px;
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--radius-sm);
+  transition: opacity 0.15s ease;
+}
+
+.app-brand:hover {
+  opacity: 0.88;
+}
+
+.app-brand:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
 }
 
 .brand__name {
@@ -664,6 +870,13 @@ a:hover {
 
 .app-topbar__spacer {
   flex: 1;
+}
+
+.app-topbar__tail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .branch-picker {

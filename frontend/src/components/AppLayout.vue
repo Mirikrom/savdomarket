@@ -2,9 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
+import AppPreferencesBar from './AppPreferencesBar.vue'
 import BrandLogo from './BrandLogo.vue'
 import CashierLayout from './CashierLayout.vue'
 import { POS_SHELL_QUERY_KEY, POS_SHELL_QUERY_VALUE } from '../posShellQuery'
+import { useI18n } from '../i18n'
 import { useAuthStore } from '../stores/auth'
 import { useOrganizationStore } from '../stores/organization'
 import { logout as logoutService } from '../services/auth.service'
@@ -13,6 +15,7 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const org = useOrganizationStore()
+const { tr, branchLabel, locale } = useI18n()
 
 const navOpen = ref(false)
 const userMenuOpen = ref(false)
@@ -43,39 +46,39 @@ const useCashierShell = computed(() => {
 
 const navGroups = computed(() => [
   {
-    label: 'Asosiy',
+    label: tr('app.nav.group.main'),
     items: [
-      { to: '/app', label: 'Dashboard', icon: '\u25A3' },
-      { to: '/app/sales', label: 'Savdolar', icon: '\u25A7' },
-      { to: '/app/debtors', label: 'Qarzdorlar', icon: '\u25C8' },
+      { to: '/app', label: tr('app.nav.dashboard'), icon: '\u25A3' },
+      { to: '/app/sales', label: tr('app.nav.sales'), icon: '\u25A7' },
+      { to: '/app/debtors', label: tr('app.nav.debtors'), icon: '\u25C8' },
     ],
   },
   {
-    label: 'Katalog',
+    label: tr('app.nav.group.catalog'),
     items: [
-      { to: '/app/products', label: 'Mahsulotlar', icon: '\u25A2' },
-      { to: '/app/categories', label: 'Kategoriyalar', icon: '\u25A4' },
+      { to: '/app/products', label: tr('app.nav.products'), icon: '\u25A2' },
+      { to: '/app/categories', label: tr('app.nav.categories'), icon: '\u25A4' },
     ],
   },
   {
-    label: 'Ombor',
+    label: tr('app.nav.group.inventory'),
     items: [
-      { to: '/app/inventory', label: 'Qoldiqlar', icon: '\u25A1' },
-      { to: '/app/inventory/receipt', label: 'Kirim', icon: '\u25B2' },
-      { to: '/app/inventory/adjust', label: 'Chiqim', icon: '\u25BC' },
-      { to: '/app/inventory/movements', label: 'Harakatlar', icon: '\u25E6' },
+      { to: '/app/inventory', label: tr('app.nav.inventory'), icon: '\u25A1' },
+      { to: '/app/inventory/receipt', label: tr('app.nav.receipt'), icon: '\u25B2' },
+      { to: '/app/inventory/adjust', label: tr('app.nav.adjust'), icon: '\u25BC' },
+      { to: '/app/inventory/movements', label: tr('app.nav.movements'), icon: '\u25E6' },
     ],
   },
   {
-    label: 'Hisobotlar',
-    items: [{ to: '/app/reports', label: 'Hisobotlar', icon: '\u25CE' }],
+    label: tr('app.nav.group.reports'),
+    items: [{ to: '/app/reports', label: tr('app.nav.reports'), icon: '\u25CE' }],
   },
   {
-    label: 'Sozlamalar',
+    label: tr('app.nav.group.settings'),
     items: [
-      { to: '/app/users', label: 'Xodimlar', icon: '\u25CB' },
-      { to: '/app/branches', label: 'Filiallar', icon: '\u25C7' },
-      { to: '/app/billing', label: 'Tarif', icon: '\u25C9' },
+      { to: '/app/users', label: tr('app.nav.users'), icon: '\u25CB' },
+      { to: '/app/branches', label: tr('app.nav.branches'), icon: '\u25C7' },
+      { to: '/app/billing', label: tr('app.nav.billing'), icon: '\u25C9' },
     ],
   },
 ])
@@ -124,18 +127,23 @@ async function logout() {
 
 <template>
   <div v-if="isLoading" class="app-boot">
-    <div class="app-boot__inner">Yuklanmoqda...</div>
+    <div class="app-boot__inner">{{ tr('app.boot.loading') }}</div>
   </div>
 
   <CashierLayout v-else-if="useCashierShell" />
 
   <div v-else class="app-shell" :class="{ 'is-nav-open': navOpen }">
     <aside class="app-sidebar">
-      <div class="app-brand">
+      <RouterLink
+        to="/app/pos"
+        class="app-brand"
+        :aria-label="tr('posShell.logoToPos')"
+        @click="navOpen = false"
+      >
         <BrandLogo variant="sidebar" />
-      </div>
+      </RouterLink>
 
-      <nav class="app-nav">
+      <nav class="app-nav" :key="locale">
         <div v-for="group in navGroups" :key="group.label" class="app-nav__group">
           <span class="app-nav__group-label">{{ group.label }}</span>
           <RouterLink
@@ -158,7 +166,7 @@ async function logout() {
           <span :class="['plan-tag__chip', `plan-tag__chip--${org.plan.code}`]">
             {{ org.plan.name }}
           </span>
-          <RouterLink to="/app/billing">Tarifni boshqarish</RouterLink>
+          <RouterLink to="/app/billing">{{ tr('app.plan.manage') }}</RouterLink>
         </div>
       </div>
     </aside>
@@ -169,7 +177,7 @@ async function logout() {
           ☰
         </button>
         <div class="app-topbar__org">
-          <strong>{{ org.organization?.name || 'Tashkilot' }}</strong>
+          <strong>{{ org.organization?.name || tr('app.orgFallback') }}</strong>
           <div class="app-topbar__tools">
             <select
               v-if="org.branches.length"
@@ -178,10 +186,14 @@ async function logout() {
               @change="onBranchChange"
             >
               <option v-for="b in org.branches" :key="b.id" :value="b.id">
-                {{ b.name }}
+                {{ branchLabel(b) }}
               </option>
             </select>
-            <RouterLink to="/app/pos" class="app-topbar__sales" title="Savdoga o‘tish">
+            <RouterLink
+              to="/app/pos"
+              class="app-topbar__sales"
+              :title="tr('app.topbar.toSalesTitle')"
+            >
               <span class="app-topbar__sales-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="9" cy="21" r="1.5" />
@@ -189,14 +201,16 @@ async function logout() {
                   <path d="M2 3h2.5l3.6 13.4a2 2 0 0 0 2 1.6h9.4a2 2 0 0 0 2-1.5L23 7H6" />
                 </svg>
               </span>
-              <span class="app-topbar__sales-text">Savdoga o‘tish</span>
+              <span class="app-topbar__sales-text">{{ tr('app.topbar.toSales') }}</span>
             </RouterLink>
           </div>
         </div>
 
         <div class="app-topbar__spacer" />
 
-        <div class="user-menu" @click.stop="userMenuOpen = !userMenuOpen">
+        <div class="app-topbar__tail">
+          <AppPreferencesBar />
+          <div class="user-menu" @click.stop="userMenuOpen = !userMenuOpen">
           <span class="user-menu__avatar">{{ auth.initials || '?' }}</span>
           <div class="user-menu__meta">
             <strong>{{ auth.fullName }}</strong>
@@ -204,11 +218,12 @@ async function logout() {
           </div>
           <span class="user-menu__caret">▾</span>
           <div v-if="userMenuOpen" class="user-menu__dropdown" @click.stop>
-            <RouterLink to="/app" @click="userMenuOpen = false">Boshqaruv paneli</RouterLink>
-            <RouterLink to="/app/users" @click="userMenuOpen = false">Xodimlar</RouterLink>
-            <RouterLink to="/app/billing" @click="userMenuOpen = false">Tarif</RouterLink>
-            <button type="button" @click="logout">Tizimdan chiqish</button>
+            <RouterLink to="/app" @click="userMenuOpen = false">{{ tr('app.user.dashboard') }}</RouterLink>
+            <RouterLink to="/app/users" @click="userMenuOpen = false">{{ tr('app.user.staff') }}</RouterLink>
+            <RouterLink to="/app/billing" @click="userMenuOpen = false">{{ tr('app.user.billing') }}</RouterLink>
+            <button type="button" @click="logout">{{ tr('app.user.logout') }}</button>
           </div>
+        </div>
         </div>
       </header>
 

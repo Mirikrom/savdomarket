@@ -4,11 +4,17 @@ import { useRouter } from 'vue-router'
 
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import { numberLocaleForUi, useI18n } from '../../i18n'
 import { stockLevels } from '../../services/inventory.service'
 import { useOrganizationStore } from '../../stores/organization'
 
 const router = useRouter()
 const org = useOrganizationStore()
+const { tr, locale } = useI18n()
+
+function numberLocale() {
+  return numberLocaleForUi(locale.value)
+}
 
 const rows = ref([])
 const summary = ref({ products_count: 0, low_stock_count: 0, total_quantity: 0 })
@@ -17,17 +23,17 @@ const search = ref('')
 const onlyLow = ref(false)
 const branchFilter = ref('')
 
-const UNIT_LABEL = {
-  piece: 'dona',
+const UNIT_LABEL = computed(() => ({
+  piece: tr('page.inventory.unitPiece'),
   kg: 'kg',
   liter: 'l',
-  pack: 'paket',
-}
+  pack: tr('page.inventory.unitPack'),
+}))
 
-const columns = [
+const columns = computed(() => [
   {
     key: 'product_name',
-    label: 'Mahsulot',
+    label: tr('page.inventory.colProduct'),
   },
   {
     key: 'product_sku',
@@ -36,27 +42,27 @@ const columns = [
   },
   {
     key: 'category_name',
-    label: 'Kategoriya',
+    label: tr('page.inventory.colCategory'),
     formatter: (v) => v || '—',
     width: '140px',
   },
   {
     key: 'branch_name',
-    label: 'Filial',
+    label: tr('page.inventory.colBranch'),
     formatter: (v) => v || '—',
     width: '140px',
   },
   {
     key: 'quantity',
-    label: 'Qoldiq',
+    label: tr('page.inventory.colQty'),
     width: '140px',
   },
   {
     key: 'min_stock',
-    label: 'Min. zaxira',
+    label: tr('page.inventory.colMin'),
     width: '120px',
   },
-]
+])
 
 const filteredRows = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -70,8 +76,8 @@ const filteredRows = computed(() => {
 
 function formatQty(row) {
   const n = Number(row.quantity ?? 0)
-  const unit = UNIT_LABEL[row.product_unit] || ''
-  return `${n.toLocaleString('uz-UZ', { maximumFractionDigits: 3 })} ${unit}`.trim()
+  const unit = UNIT_LABEL.value[row.product_unit] || ''
+  return `${n.toLocaleString(numberLocale(), { maximumFractionDigits: 3 })} ${unit}`.trim()
 }
 
 async function fetchLevels() {
@@ -110,32 +116,32 @@ onMounted(() => {
 <template>
   <div>
     <PageHeader
-      title="Ombor qoldiqlari"
-      subtitle="Mahsulotlar bo‘yicha joriy zaxira va kam qolgan tovarlar"
+      :title="tr('page.inventory.title')"
+      :subtitle="tr('page.inventory.subtitle')"
     >
       <template #actions>
         <button class="btn btn--ghost" @click="router.push('/app/inventory/movements')">
-          Tarix
+          {{ tr('page.inventory.historyBtn') }}
         </button>
         <button class="btn btn--primary" @click="router.push('/app/inventory/receipt')">
-          + Kirim qilish
+          {{ tr('page.inventory.receiptBtn') }}
         </button>
       </template>
     </PageHeader>
 
     <div class="stat-grid">
       <div class="stat-card">
-        <span class="stat-card__label">Jami mahsulotlar</span>
+        <span class="stat-card__label">{{ tr('page.inventory.statProducts') }}</span>
         <strong class="stat-card__value">{{ summary.products_count }}</strong>
       </div>
       <div class="stat-card stat-card--warn">
-        <span class="stat-card__label">Kam qolgan</span>
+        <span class="stat-card__label">{{ tr('page.inventory.statLow') }}</span>
         <strong class="stat-card__value">{{ summary.low_stock_count }}</strong>
       </div>
       <div class="stat-card">
-        <span class="stat-card__label">Umumiy zaxira</span>
+        <span class="stat-card__label">{{ tr('page.inventory.statTotalQty') }}</span>
         <strong class="stat-card__value">
-          {{ Number(summary.total_quantity).toLocaleString('uz-UZ', { maximumFractionDigits: 2 }) }}
+          {{ Number(summary.total_quantity).toLocaleString(numberLocale(), { maximumFractionDigits: 2 }) }}
         </strong>
       </div>
     </div>
@@ -145,15 +151,15 @@ onMounted(() => {
         v-model="search"
         class="search-input"
         type="search"
-        placeholder="Mahsulot nomi yoki SKU bo‘yicha qidiruv"
+        :placeholder="tr('page.inventory.searchPlaceholder')"
       />
       <select v-model="branchFilter" class="filter-select">
-        <option value="">Barcha filiallar</option>
+        <option value="">{{ tr('page.movements.filterAllBranches') }}</option>
         <option v-for="b in org.branches" :key="b.id" :value="b.id">{{ b.name }}</option>
       </select>
       <label class="filter-check">
         <input v-model="onlyLow" type="checkbox" />
-        <span>Faqat kam qolganlar</span>
+        <span>{{ tr('page.inventory.onlyLow') }}</span>
       </label>
     </div>
 
@@ -161,7 +167,7 @@ onMounted(() => {
       :columns="columns"
       :rows="filteredRows"
       :loading="loading"
-      empty-text="Hozircha mahsulotlar yoki qoldiqlar yo‘q."
+      :empty-text="tr('page.inventory.emptyTable')"
     >
       <template #cell:quantity="{ row }">
         <span :class="row.is_low ? 'qty-pill qty-pill--low' : 'qty-pill'">
@@ -169,7 +175,7 @@ onMounted(() => {
         </span>
       </template>
       <template #cell:min_stock="{ row }">
-        {{ Number(row.min_stock).toLocaleString('uz-UZ', { maximumFractionDigits: 3 }) }}
+        {{ Number(row.min_stock).toLocaleString(numberLocale(), { maximumFractionDigits: 3 }) }}
       </template>
     </DataTable>
   </div>

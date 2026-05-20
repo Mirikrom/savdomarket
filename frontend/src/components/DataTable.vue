@@ -1,17 +1,28 @@
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+import { useI18n } from '../i18n'
+
+const props = defineProps({
   columns: { type: Array, required: true }, // [{key, label, formatter?, width?}]
   rows: { type: Array, required: true },
   loading: { type: Boolean, default: false },
   rowKey: { type: String, default: 'id' },
   emptyText: { type: String, default: 'Ma\u2019lumot topilmadi.' },
-  /** Amallar ustuni sarlavhasi (bo‘sh — faqat ikonka ustuni). */
-  actionsLabel: { type: String, default: 'Amallar' },
+  /** Amallar ustuni sarlavhasi (null — `table.actions` kaliti). */
+  actionsLabel: { type: String, default: null },
+  /** Yuklash qatori matni (null — `app.boot.loading`). */
+  loadingText: { type: String, default: null },
   /** Qator bosilganda ochiladi — hoverda ko‘rsatkich (pointer). */
   clickable: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['row-click'])
+
+const { tr } = useI18n()
+
+const loadingMessage = computed(() => props.loadingText ?? tr('app.boot.loading'))
+const actionsHeading = computed(() => props.actionsLabel ?? tr('table.actions'))
 </script>
 
 <template>
@@ -22,13 +33,13 @@ const emit = defineEmits(['row-click'])
           <th v-for="col in columns" :key="col.key" :style="col.width ? { width: col.width } : {}">
             {{ col.label }}
           </th>
-          <th v-if="$slots.actions" class="data-table__actions-col">{{ actionsLabel }}</th>
+          <th v-if="$slots.actions" class="data-table__actions-col">{{ actionsHeading }}</th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="loading">
           <td :colspan="columns.length + ($slots.actions ? 1 : 0)" class="data-table__placeholder">
-            Yuklanmoqda...
+            {{ loadingMessage }}
           </td>
         </tr>
         <tr v-else-if="rows.length === 0">

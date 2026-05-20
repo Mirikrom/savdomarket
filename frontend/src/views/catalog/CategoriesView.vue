@@ -1,10 +1,16 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 
 import AppModal from '../../components/AppModal.vue'
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import { numberLocaleForUi, useI18n } from '../../i18n'
 import { categories } from '../../services/catalog.service'
+import { useUiStore } from '../../stores/ui'
+
+const { tr } = useI18n()
+const { locale } = storeToRefs(useUiStore())
 
 const rows = ref([])
 const loading = ref(true)
@@ -15,15 +21,17 @@ const saving = ref(false)
 
 const form = reactive({ name: '' })
 
-const columns = [
-  { key: 'name', label: 'Nomi' },
+const dateLocale = computed(() => numberLocaleForUi(locale.value))
+
+const columns = computed(() => [
+  { key: 'name', label: tr('table.column.name') },
   {
     key: 'created_at',
-    label: 'Yaratilgan',
-    formatter: (v) => (v ? new Date(v).toLocaleDateString('uz-UZ') : '—'),
+    label: tr('table.column.created'),
+    formatter: (v) => (v ? new Date(v).toLocaleDateString(dateLocale.value) : '—'),
     width: '160px',
   },
-]
+])
 
 async function fetchData() {
   loading.value = true
@@ -63,19 +71,19 @@ async function submit() {
     apiError.value =
       error?.response?.data?.detail ||
       error?.response?.data?.name?.[0] ||
-      'Saqlashda xatolik.'
+      tr('page.categories.saveError')
   } finally {
     saving.value = false
   }
 }
 
 async function remove(row) {
-  if (!confirm(`"${row.name}" kategoriyasi o‘chirilsinmi?`)) return
+  if (!confirm(tr('page.categories.deleteConfirm', { name: row.name }))) return
   try {
     await categories.remove(row.id)
     await fetchData()
   } catch (error) {
-    alert(error?.response?.data?.detail || 'O‘chirib bo‘lmadi.')
+    alert(error?.response?.data?.detail || tr('page.categories.deleteFail'))
   }
 }
 
@@ -84,9 +92,9 @@ onMounted(fetchData)
 
 <template>
   <div>
-    <PageHeader title="Kategoriyalar" subtitle="Mahsulotlar guruhlanadigan kategoriyalar">
+    <PageHeader :title="tr('page.categories.title')" :subtitle="tr('page.categories.subtitle')">
       <template #actions>
-        <button class="btn btn--primary" @click="openCreate">+ Yangi kategoriya</button>
+        <button class="btn btn--primary" @click="openCreate">{{ tr('page.categories.addBtn') }}</button>
       </template>
     </PageHeader>
 
@@ -94,31 +102,33 @@ onMounted(fetchData)
       :columns="columns"
       :rows="rows"
       :loading="loading"
-      empty-text="Hozircha kategoriyalar yo‘q. Birinchisini yarating."
+      :empty-text="tr('page.categories.emptyTable')"
     >
       <template #actions="{ row }">
-        <button class="icon-btn" @click="openEdit(row)">Tahrirlash</button>
-        <button class="icon-btn icon-btn--danger" @click="remove(row)">O‘chirish</button>
+        <button class="icon-btn" @click="openEdit(row)">{{ tr('page.categories.edit') }}</button>
+        <button class="icon-btn icon-btn--danger" @click="remove(row)">{{ tr('page.categories.delete') }}</button>
       </template>
     </DataTable>
 
     <AppModal
       :open="modalOpen"
-      :title="editingId ? 'Kategoriyani tahrirlash' : 'Yangi kategoriya'"
+      :title="editingId ? tr('page.categories.modalEdit') : tr('page.categories.modalNew')"
       @close="modalOpen = false"
     >
       <form class="auth-form" @submit.prevent="submit">
         <label class="field">
-          <span>Nomi <i class="required">*</i></span>
+          <span>{{ tr('page.categories.fieldNameLabel') }} <i class="required">*</i></span>
           <input v-model.trim="form.name" type="text" required maxlength="120" />
         </label>
         <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
       </form>
 
       <template #footer>
-        <button class="btn btn--ghost" type="button" @click="modalOpen = false">Bekor qilish</button>
+        <button class="btn btn--ghost" type="button" @click="modalOpen = false">
+          {{ tr('page.categories.cancel') }}
+        </button>
         <button class="btn btn--primary" :disabled="saving" @click="submit">
-          {{ saving ? 'Saqlanmoqda...' : 'Saqlash' }}
+          {{ saving ? tr('page.categories.saving') : tr('page.categories.save') }}
         </button>
       </template>
     </AppModal>

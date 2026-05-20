@@ -1,34 +1,45 @@
 <script setup>
+import { computed } from 'vue'
+
 import BrandLogo from './BrandLogo.vue'
 import { formatQuantity } from '../lib/formatQuantity'
+import { numberLocaleForUi, useI18n } from '../i18n'
+import { useOrganizationStore } from '../stores/organization'
 
-defineProps({
+const props = defineProps({
   sale: { type: Object, required: true },
 })
 
-const PAYMENT_LABEL = {
-  cash: 'Naqd',
-  card: 'Karta',
-  mixed: 'Aralash',
-  transfer: 'O‘tkazma',
-}
+const org = useOrganizationStore()
+const { tr, locale, branchName } = useI18n()
+
+const dateLocale = computed(() => numberLocaleForUi(locale.value))
 
 function formatMoney(n) {
-  return Number(n || 0).toLocaleString('uz-UZ', { maximumFractionDigits: 0 })
+  const num = Number(n || 0).toLocaleString(dateLocale.value, { maximumFractionDigits: 0 })
+  return `${num} ${tr('page.billing.currencySom')}`
 }
 
 function paymentLabel(method) {
-  return PAYMENT_LABEL[method] || method || '—'
+  if (method === 'cash') return tr('page.salesHistory.payCash')
+  if (method === 'card') return tr('page.salesHistory.payCard')
+  if (method === 'mixed') return tr('pos.payTab.mixed')
+  if (method === 'transfer') return tr('page.debtors.methodTransfer')
+  return method || '—'
 }
+
+const branchDisplay = computed(() =>
+  branchName(props.sale?.branch_name, org.branches),
+)
 </script>
 
 <template>
   <div id="sale-receipt-print" class="receipt receipt-print-area">
     <div class="receipt__head">
       <BrandLogo variant="receipt" />
-      <small v-if="sale.sold_at">{{ new Date(sale.sold_at).toLocaleString('uz-UZ') }}</small>
-      <small>Chek #{{ sale.id }}</small>
-      <small v-if="sale.branch_name">{{ sale.branch_name }}</small>
+      <small v-if="sale.sold_at">{{ new Date(sale.sold_at).toLocaleString(dateLocale) }}</small>
+      <small>{{ tr('page.salesHistory.receiptLabel') }} #{{ sale.id }}</small>
+      <small v-if="sale.branch_name">{{ branchDisplay }}</small>
     </div>
     <ul class="receipt__items">
       <li v-for="item in sale.items" :key="item.id">
@@ -46,18 +57,18 @@ function paymentLabel(method) {
       </div>
     </div>
     <div class="receipt__totals">
-      <div><span>Subtotal:</span><strong>{{ formatMoney(sale.subtotal) }}</strong></div>
+      <div><span>{{ tr('pos.receiptSubtotal') }}</span><strong>{{ formatMoney(sale.subtotal) }}</strong></div>
       <div v-if="Number(sale.discount) > 0">
-        <span>Chegirma:</span><strong>-{{ formatMoney(sale.discount) }}</strong>
+        <span>{{ tr('pos.receiptDiscount') }}</span><strong>-{{ formatMoney(sale.discount) }}</strong>
       </div>
-      <div class="receipt__final"><span>Jami:</span><strong>{{ formatMoney(sale.total) }} so‘m</strong></div>
-      <div v-if="sale.debtor_name"><span>Qarzdor:</span><strong>{{ sale.debtor_name }}</strong></div>
-      <div><span>To‘langan:</span><strong>{{ formatMoney(sale.paid) }}</strong></div>
+      <div class="receipt__final"><span>{{ tr('pos.receiptTotal') }}</span><strong>{{ formatMoney(sale.total) }}</strong></div>
+      <div v-if="sale.debtor_name"><span>{{ tr('page.salesHistory.metaDebtor') }}</span><strong>{{ sale.debtor_name }}</strong></div>
+      <div><span>{{ tr('pos.receiptPaid') }}</span><strong>{{ formatMoney(sale.paid) }}</strong></div>
       <div v-if="Number(sale.balance_due) > 0">
-        <span>Qarz:</span><strong>{{ formatMoney(sale.balance_due) }} so'm</strong>
+        <span>{{ tr('pos.summaryCredit') }}</span><strong>{{ formatMoney(sale.balance_due) }}</strong>
       </div>
       <div v-if="Number(sale.change) > 0">
-        <span>Qaytim:</span><strong>{{ formatMoney(sale.change) }}</strong>
+        <span>{{ tr('pos.receiptChange') }}</span><strong>{{ formatMoney(sale.change) }}</strong>
       </div>
     </div>
   </div>

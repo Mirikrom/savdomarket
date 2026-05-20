@@ -3,7 +3,9 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
+import AppPreferencesBar from '../../components/AppPreferencesBar.vue'
 import BrandLogo from '../../components/BrandLogo.vue'
+import { numberLocaleForUi, useI18n } from '../../i18n'
 import { formatQuantity } from '../../lib/formatQuantity'
 import { localDateTimeIso } from '../../lib/localDateTime'
 import { routeWithPosShell } from '../../posShellQuery'
@@ -30,6 +32,7 @@ import { countPendingSales, newClientUuid, saveOfflineSale } from '../../offline
 
 const auth = useAuthStore()
 const org = useOrganizationStore()
+const { tr, locale } = useI18n()
 
 const productList = ref([])
 const categoryList = ref([])
@@ -61,12 +64,23 @@ function toggleProductLayout() {
   productLayout.value = productLayout.value === 'grid' ? 'comfort' : 'grid'
 }
 
-const UNIT_LABEL = {
-  piece: 'dona',
-  kg: 'kg',
-  liter: 'litr',
-  pack: 'paket',
+const unitLabelMap = computed(() => ({
+  piece: tr('page.products.unit.piece'),
+  kg: tr('page.products.unit.kg'),
+  liter: tr('page.products.unit.liter'),
+  pack: tr('page.products.unit.pack'),
+}))
+
+function unitLabel(unit) {
+  return unitLabelMap.value[unit] || unit || ''
 }
+
+const paymentTabs = computed(() => [
+  { code: 'cash', label: tr('pos.payTab.cash') },
+  { code: 'card', label: tr('pos.payTab.card') },
+  { code: 'mixed', label: tr('pos.payTab.mixed') },
+  { code: 'credit', label: tr('pos.payTab.credit') },
+])
 
 const cart = reactive({
   items: [],
@@ -79,13 +93,6 @@ const payments = reactive({
   cardAmount: '',
 })
 
-/** To‘lov modali tablari (yonma-yon) */
-const PAYMENT_TABS = [
-  { code: 'cash', label: 'Naqd' },
-  { code: 'card', label: 'Karta' },
-  { code: 'mixed', label: 'Aralash' },
-  { code: 'credit', label: 'Qarzga' },
-]
 const activeMethod = ref('cash')
 /** Aralash ichida: naqd+karta yoki qarzga */
 const mixedSubMode = ref(null)
@@ -108,18 +115,27 @@ const submitDisabled = computed(
 )
 
 const submitDisabledHint = computed(() => {
-  if (total.value <= 0) return 'Savatda mahsulot yo‘q.'
+  void locale.value
+  if (total.value <= 0) return tr('pos.err.cartEmpty')
   if (activeMethod.value === 'mixed' && !mixedSubMode.value) {
-    return '«Aralash» ichida «Aralash» yoki «Qarzga» ni tanlang.'
+    return tr('pos.err.mixedPick')
   }
   if (isCreditPayment.value && !hasDebtorSelected.value) {
-    return 'Qarzdorni tanlang yoki «+ Yangi qarzdor» orqali kiriting.'
+    return tr('pos.err.debtorRequired')
   }
   if (!isCreditPayment.value && remaining.value > 0) {
-    return `To‘lov yetarli emas — yana ${formatMoney(remaining.value)} so‘m kerak.`
+    return tr('pos.err.paymentShort', { amount: formatMoney(remaining.value) })
   }
   return ''
 })
+
+function debtorOptionLabel(d) {
+  return tr('pos.debtorOption', {
+    name: d.name || '',
+    phone: d.phone ? ` (${d.phone})` : '',
+    debt: formatMoney(d.balance_due),
+  })
+}
 
 const debtorList = ref([])
 const debtorsLoading = ref(false)
@@ -272,14 +288,14 @@ function addToCart(product) {
   const offline = isOfflineMode()
   const max = stockOf(product.id)
   if (!offline && max <= 0) {
-    flashScan('Omborda qoldiq yo‘q')
+    flashScan(tr('pos.err.noStock'))
     return false
   }
   const existing = cart.items.find((i) => i.product === product.id)
   if (existing) {
     const next = Number(existing.quantity) + 1
     if (!offline && next > max) {
-      flashScan(`Omborda maksimum ${max} ${UNIT_LABEL[product.unit] || ''}`)
+      flashScan(tr('pos.err.maxStock', { max, unit: unitLabel(product.unit) }))
       return false
     }
     existing.quantity = String(next)
@@ -305,7 +321,7 @@ function changeQty(line, delta) {
     return
   }
   if (!offline && next > max) {
-    flashScan(`Omborda maksimum ${max} ${UNIT_LABEL[line.unit] || ''}`)
+    flashScan(tr('pos.err.maxStock', { max, unit: unitLabel(line.unit) }))
     return
   }
   line.quantity = String(next)
@@ -320,7 +336,7 @@ function onLineQuantityChange(line) {
   }
   if (!isOfflineMode() && n > max) {
     line.quantity = String(max)
-    flashScan(`Maksimum ${max} ${UNIT_LABEL[line.unit] || ''}`)
+    flashScan(tr('pos.err.maxStock', { max, unit: unitLabel(line.unit) }))
     return
   }
   line.quantity = String(n)
@@ -481,24 +497,24 @@ async function submitSale() {
   apiError.value = ''
   const { branchId: saleBranchId } = await resolvePosIds(org)
   if (!saleBranchId) {
-    apiError.value = 'Filial tanlanmagan.'
+    apiError.value = tr('pos.err.noBranch')
     return
   }
   if (total.value <= 0) {
-    apiError.value = 'Savatda mahsulot yo‘q.'
+    apiError.value = tr('pos.err.cartEmpty')
     return
   }
   const isCredit = isCreditPayment.value
   if (!isCredit && totalPaid.value < total.value) {
-    apiError.value = 'To‘langan summa yetarli emas.'
+    apiError.value = tr('pos.err.payInsufficient')
     return
   }
   if (isCredit && !hasDebtorSelected.value) {
-    apiError.value = 'Qarzdorni tanlang yoki yangisini kiriting.'
+    apiError.value = tr('pos.err.selectDebtor')
     return
   }
   if (totalPaid.value > total.value) {
-    apiError.value = 'To‘langan summa savdo summasidan oshmasligi kerak.'
+    apiError.value = tr('pos.err.payOver')
     return
   }
 
@@ -510,7 +526,7 @@ async function submitSale() {
     if (card > 0) paymentLines.push({ method: 'card', amount: payments.cardAmount })
   } else if (activeMethod.value === 'mixed' && mixedSubMode.value === 'split') {
     if (cash <= 0 && card <= 0) {
-      apiError.value = 'Naqd yoki karta summasini kiriting.'
+      apiError.value = tr('pos.err.mixedAmount')
       return
     }
     if (cash > 0) paymentLines.push({ method: 'cash', amount: payments.cashAmount })
@@ -567,7 +583,7 @@ async function submitSale() {
       await finishOfflineSale()
     } catch (err) {
       console.error('[offline] savdo saqlash:', err)
-      apiError.value = 'Offline savdoni saqlashda xatolik.'
+      apiError.value = tr('pos.err.offlineSave')
     } finally {
       submitting.value = false
     }
@@ -605,7 +621,7 @@ async function submitSale() {
         return
       } catch (offlineErr) {
         console.error('[offline] fallback saqlash:', offlineErr)
-        apiError.value = 'Server ishlamayapti, offline saqlash ham muvaffaqiyatsiz.'
+        apiError.value = tr('pos.err.offlineFail')
         return
       }
     }
@@ -613,14 +629,23 @@ async function submitSale() {
     apiError.value =
       data?.detail ||
       (typeof data === 'object' ? Object.values(data || {})?.[0]?.toString() : '') ||
-      'Savdo qilishda xatolik.'
+      tr('pos.err.saleFail')
   } finally {
     submitting.value = false
   }
 }
 
 function formatMoney(n) {
-  return Number(n || 0).toLocaleString('uz-UZ', { maximumFractionDigits: 2 })
+  const num = Number(n || 0).toLocaleString(numberLocaleForUi(locale.value), {
+    maximumFractionDigits: 2,
+  })
+  return `${num} ${tr('page.billing.currencySom')}`
+}
+
+function formatMoneyPlain(n) {
+  return Number(n || 0).toLocaleString(numberLocaleForUi(locale.value), {
+    maximumFractionDigits: 2,
+  })
 }
 
 function productImageSrc(p) {
@@ -749,12 +774,13 @@ onUnmounted(() => {
   <div class="pos-view">
     <header class="pos-topbar">
       <div class="pos-topbar__brand">
-        <h1 class="pos-topbar__title">Kassa</h1>
+        <h1 class="pos-topbar__title">{{ tr('pos.pageTitle') }}</h1>
       </div>
+      <AppPreferencesBar dark-surface class="pos-topbar__prefs" />
     </header>
 
     <div v-if="pendingSalesCount > 0" class="pos-offline-banner" role="status">
-      {{ pendingSalesCount }} ta savdo sinxronlash kutilmoqda
+      {{ tr('pos.offlineBanner', { n: pendingSalesCount }) }}
     </div>
 
     <div class="pos-dashboard">
@@ -762,16 +788,16 @@ onUnmounted(() => {
         <aside class="pos-cart" :class="{ 'is-open': cartOpen }">
           <header class="pos-cart__head">
             <h3 class="pos-cart__title">
-              Korzinka
+              {{ tr('pos.cartTitle') }}
               <span class="pos-cart__badge">{{ cart.items.length }}</span>
             </h3>
-            <button v-if="cartOpen" class="pos-icon-close" type="button" aria-label="Yopish" @click="cartOpen = false">
+            <button v-if="cartOpen" class="pos-icon-close" type="button" :aria-label="tr('pos.close')" @click="cartOpen = false">
               ×
             </button>
           </header>
 
           <div v-if="cart.items.length === 0" class="pos-cart__empty">
-            Mahsulot tanlang
+            {{ tr('pos.emptyCart') }}
           </div>
 
           <ul v-else class="pos-cart__list">
@@ -790,7 +816,7 @@ onUnmounted(() => {
               </div>
               <div class="pos-cart__info">
                 <strong>{{ line.name }}</strong>
-                <small>{{ formatMoney(line.unit_price) }} × {{ formatQuantity(line.quantity) }} {{ UNIT_LABEL[line.unit] }}</small>
+                <small>{{ formatMoney(line.unit_price) }} × {{ formatQuantity(line.quantity) }} {{ unitLabel(line.unit) }}</small>
               </div>
               <div class="pos-cart__qty">
                 <button type="button" @click="changeQty(line, -1)">−</button>
@@ -830,14 +856,14 @@ onUnmounted(() => {
                   v-model="search"
                   class="pos-search-field pos-search-field--inset"
                   type="search"
-                  placeholder="Mahsulot qidirish..."
+                  :placeholder="tr('pos.searchPlaceholder')"
                 />
               </div>
               <button
                 type="button"
                 class="pos-layout-toggle"
                 :class="{ 'is-grid': productLayout === 'grid', 'is-comfort': productLayout === 'comfort' }"
-                :title="productLayout === 'grid' ? 'Kattaroq kartalar' : 'Zich tarmoq'"
+                :title="productLayout === 'grid' ? tr('pos.layoutComfortTitle') : tr('pos.layoutGridTitle')"
                 @click="toggleProductLayout"
               >
                 <svg
@@ -872,7 +898,7 @@ onUnmounted(() => {
           </div>
 
           <div v-if="!loading && categoryList.length" class="pos-chip-wrap">
-            <button type="button" class="pos-chip-scroll" aria-label="Chapga" @click="scrollChips(-1)">
+            <button type="button" class="pos-chip-scroll" :aria-label="tr('pos.chipScrollLeft')" @click="scrollChips(-1)">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
                 <path d="M15 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
@@ -884,7 +910,7 @@ onUnmounted(() => {
                 :class="{ 'is-active': selectedCategory === '' }"
                 @click="selectedCategory = ''"
               >
-                Barchasi
+                {{ tr('pos.chipAll') }}
               </button>
               <button
                 v-for="c in categoryList"
@@ -897,21 +923,21 @@ onUnmounted(() => {
                 {{ c.name }}
               </button>
             </div>
-            <button type="button" class="pos-chip-scroll" aria-label="O‘ngga" @click="scrollChips(1)">
+            <button type="button" class="pos-chip-scroll" :aria-label="tr('pos.chipScrollRight')" @click="scrollChips(1)">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
                 <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </button>
           </div>
 
-          <div v-if="loading" class="pos-empty">Yuklanmoqda...</div>
+          <div v-if="loading" class="pos-empty">{{ tr('pos.loading') }}</div>
           <div v-else-if="filteredProducts.length === 0" class="pos-empty pos-empty--inline">
             <span v-if="isOfflineMode()" class="pos-empty__msg">
-              Offline katalog bo‘sh. Avval internet bilan kassani ochib sinxron qiling.
+              {{ tr('pos.catalogEmptyOffline') }}
             </span>
-            <span v-else class="pos-empty__msg">Mahsulot topilmadi.</span>
+            <span v-else class="pos-empty__msg">{{ tr('pos.catalogEmpty') }}</span>
             <RouterLink class="pos-text-link pos-text-link--compact" :to="routeWithPosShell('/app/products')">
-              Katalogga o‘tish
+              {{ tr('pos.goToCatalog') }}
             </RouterLink>
           </div>
           <div
@@ -942,12 +968,12 @@ onUnmounted(() => {
               <div class="product-tile__body">
                 <span class="product-tile__name">{{ p.name }}</span>
                 <div class="product-tile__price-row">
-                  <span class="product-tile__price">{{ formatMoney(p.sell_price) }}</span>
-                  <span class="product-tile__unit">so‘m</span>
+                  <span class="product-tile__price">{{ formatMoneyPlain(p.sell_price) }}</span>
+                  <span class="product-tile__unit">{{ tr('page.billing.currencySom') }}</span>
                 </div>
                 <div class="product-tile__footer">
                   <span class="product-tile__stock">
-                    {{ displayStock(p.id) }} {{ UNIT_LABEL[p.unit] || '' }}
+                    {{ displayStock(p.id) }} {{ unitLabel(p.unit) }}
                   </span>
                 </div>
               </div>
@@ -957,28 +983,28 @@ onUnmounted(() => {
 
         <div class="pos-checkout-bar pos-panel">
           <label class="pos-cart__discount">
-            <span>Chegirma (so‘m)</span>
+            <span>{{ tr('pos.discountLabel') }}</span>
             <input v-model="cart.discount" type="number" min="0" step="0.01" />
           </label>
 
           <div class="pos-summary-cards">
             <div class="pos-summary-card">
-              <span class="pos-summary-card__label">Mahsulotlar</span>
+              <span class="pos-summary-card__label">{{ tr('pos.summaryProducts') }}</span>
               <strong class="pos-summary-card__val">{{ cart.items.length }}</strong>
             </div>
             <div class="pos-summary-card">
-              <span class="pos-summary-card__label">Umumiy miqdor</span>
+              <span class="pos-summary-card__label">{{ tr('pos.summaryQty') }}</span>
               <strong class="pos-summary-card__val">{{ formatQuantity(cartTotalQty) }}</strong>
             </div>
             <div class="pos-summary-card">
-              <span class="pos-summary-card__label">Chegirma</span>
+              <span class="pos-summary-card__label">{{ tr('pos.summaryDiscount') }}</span>
               <strong class="pos-summary-card__val">{{ formatMoney(discountNum) }}</strong>
             </div>
           </div>
 
           <div class="pos-totals">
-            <div><span>Oraliq:</span><strong>{{ formatMoney(subtotal) }}</strong></div>
-            <div class="pos-totals__final"><span>Jami to‘lov:</span><strong>{{ formatMoney(total) }} so‘m</strong></div>
+            <div><span>{{ tr('pos.subtotal') }}</span><strong>{{ formatMoney(subtotal) }}</strong></div>
+            <div class="pos-totals__final"><span>{{ tr('pos.totalPay') }}</span><strong>{{ formatMoney(total) }}</strong></div>
           </div>
 
           <div class="pos-cart__actions">
@@ -988,7 +1014,7 @@ onUnmounted(() => {
               :disabled="!cart.items.length"
               @click="clearCart"
             >
-              Bekor
+              {{ tr('pos.cancel') }}
             </button>
             <button
               class="pos-btn pos-btn--primary pos-btn--lg"
@@ -996,7 +1022,7 @@ onUnmounted(() => {
               :disabled="!cart.items.length || submitting"
               @click="openPayment"
             >
-              To‘lash (F2)
+              {{ tr('pos.payBtn') }}
             </button>
           </div>
         </div>
@@ -1004,23 +1030,23 @@ onUnmounted(() => {
     </div>
 
     <button class="pos-cart-toggle" type="button" @click="cartOpen = true">
-      Korzinka ({{ cart.items.length }}) · {{ formatMoney(total) }}
+      {{ tr('pos.cartToggle', { n: cart.items.length, total: formatMoney(total) }) }}
     </button>
 
     <AppModal
       :open="paymentOpen"
-      title="To‘lov"
+      :title="tr('pos.paymentTitle')"
       width="520px"
       @close="paymentOpen = false"
     >
       <div class="payment-modal">
         <div class="payment-total">
-          To‘lanishi kerak: <strong>{{ formatMoney(total) }} so‘m</strong>
+          {{ tr('pos.paymentDue') }} <strong>{{ formatMoney(total) }}</strong>
         </div>
 
         <div class="payment-tabs">
           <button
-            v-for="m in PAYMENT_TABS"
+            v-for="m in paymentTabs"
             :key="m.code"
             type="button"
             :class="['payment-tab', activeMethod === m.code ? 'is-active' : '']"
@@ -1032,11 +1058,11 @@ onUnmounted(() => {
 
         <div v-if="activeMethod === 'cash'" class="payment-section">
           <label class="field field--full">
-            <span>Naqd to‘lov</span>
+            <span>{{ tr('pos.cashPay') }}</span>
             <input v-model="payments.cashAmount" type="number" min="0" step="0.01" />
           </label>
           <div class="quick-amounts">
-            <button type="button" @click="setQuickCash(total)">Aniq</button>
+            <button type="button" @click="setQuickCash(total)">{{ tr('pos.quickExact') }}</button>
             <button type="button" @click="setQuickCash(Math.ceil(total / 10000) * 10000)">
               {{ formatMoney(Math.ceil(total / 10000) * 10000) }}
             </button>
@@ -1051,21 +1077,21 @@ onUnmounted(() => {
 
         <div v-else-if="activeMethod === 'card'" class="payment-section">
           <label class="field field--full">
-            <span>Karta orqali</span>
+            <span>{{ tr('pos.cardPay') }}</span>
             <input v-model="payments.cardAmount" type="number" min="0" step="0.01" />
           </label>
-          <p class="hint">Karta orqali to‘lovni kassa apparatida o‘tkazing va summani kiriting.</p>
+          <p class="hint">{{ tr('pos.cardHint') }}</p>
         </div>
 
         <template v-else-if="activeMethod === 'mixed'">
           <template v-if="!mixedSubMode">
-            <p class="hint payment-mixed-pick-hint">To'lov turini tanlang:</p>
+            <p class="hint payment-mixed-pick-hint">{{ tr('pos.mixedPickHint') }}</p>
             <div class="payment-subtabs">
               <button type="button" class="payment-subtab" @click="setMixedSubMode('split')">
-                Aralash
+                {{ tr('pos.mixedSplit') }}
               </button>
               <button type="button" class="payment-subtab" @click="setMixedSubMode('credit')">
-                Qarzga
+                {{ tr('pos.mixedCredit') }}
               </button>
             </div>
           </template>
@@ -1077,7 +1103,7 @@ onUnmounted(() => {
 
           <div class="payment-mixed-grid">
             <label class="field field--full">
-              <span>Naqd pul</span>
+              <span>{{ tr('pos.cashMoney') }}</span>
               <input
                 v-model="payments.cashAmount"
                 type="number"
@@ -1086,63 +1112,61 @@ onUnmounted(() => {
               />
             </label>
             <label class="field field--full">
-              <span>Plastik karta</span>
+              <span>{{ tr('pos.plasticCard') }}</span>
               <input v-model="payments.cardAmount" type="number" min="0" step="0.01" />
             </label>
           </div>
           <div class="payment-mixed-actions">
             <button type="button" class="btn btn--ghost btn--sm" @click="fillMixedHalf">
-              50 / 50
+              {{ tr('pos.fillHalf') }}
             </button>
             <button type="button" class="btn btn--ghost btn--sm" @click="fillMixedCardRemainder">
-              Qolganini kartaga
+              {{ tr('pos.fillCardRemainder') }}
             </button>
           </div>
-          <p class="hint">
-            Naqd + karta jami <strong>{{ formatMoney(total) }}</strong> so‘m dan kam bo‘lmasligi kerak.
-          </p>
+          <p class="hint">{{ tr('pos.mixedMinHint', { total: formatMoney(total) }) }}</p>
           </div>
         </template>
 
         <div v-if="showCreditDebtorUI" class="payment-section payment-section--credit">
           <label class="field field--full">
-            <span>Qarzdor</span>
+            <span>{{ tr('pos.debtor') }}</span>
             <select v-if="!newDebtorMode" v-model="selectedDebtorId" :disabled="debtorsLoading">
-              <option value="">Tanlang...</option>
+              <option value="">{{ tr('pos.selectPlaceholder') }}</option>
               <option v-for="d in debtorList" :key="d.id" :value="String(d.id)">
-                {{ d.name }}{{ d.phone ? ` (${d.phone})` : '' }} — qarz: {{ formatMoney(d.balance_due) }}
+                {{ debtorOptionLabel(d) }}
               </option>
             </select>
           </label>
           <button type="button" class="btn btn--ghost btn--sm" @click="newDebtorMode = !newDebtorMode">
-            {{ newDebtorMode ? "Ro'yxatdan tanlash" : '+ Yangi qarzdor' }}
+            {{ newDebtorMode ? tr('pos.listFromRegister') : tr('pos.newDebtor') }}
           </button>
           <template v-if="newDebtorMode">
-            <label class="field field--full"><span>Ism *</span><input v-model="newDebtor.name" type="text" /></label>
-            <label class="field field--full"><span>Telefon</span><input v-model="newDebtor.phone" type="tel" /></label>
+            <label class="field field--full"><span>{{ tr('pos.fieldName') }}</span><input v-model="newDebtor.name" type="text" /></label>
+            <label class="field field--full"><span>{{ tr('pos.fieldPhone') }}</span><input v-model="newDebtor.phone" type="tel" /></label>
           </template>
           <label class="field field--full">
-            <span>Hozir naqd (ixtiyoriy)</span>
+            <span>{{ tr('pos.cashOptional') }}</span>
             <input v-model="payments.cashAmount" type="number" min="0" step="0.01" />
           </label>
-          <p class="hint">Qolgan <strong>{{ formatMoney(creditDebtAmount) }}</strong> so'm qarzdor hisobiga yoziladi.</p>
+          <p class="hint">{{ tr('pos.creditRemainderHint', { amount: formatMoney(creditDebtAmount) }) }}</p>
         </div>
 
         <div class="payment-summary">
           <template v-if="activeMethod === 'mixed' && mixedSubMode === 'split'">
             <div class="payment-summary__row">
-              <span>Naqd:</span><strong>{{ formatMoney(payments.cashAmount) }}</strong>
+              <span>{{ tr('pos.summaryCash') }}</span><strong>{{ formatMoney(payments.cashAmount) }}</strong>
             </div>
             <div class="payment-summary__row">
-              <span>Karta:</span><strong>{{ formatMoney(payments.cardAmount) }}</strong>
+              <span>{{ tr('pos.summaryCard') }}</span><strong>{{ formatMoney(payments.cardAmount) }}</strong>
             </div>
           </template>
-          <div><span>Jami to‘langan:</span><strong>{{ formatMoney(totalPaid) }}</strong></div>
+          <div><span>{{ tr('pos.summaryPaid') }}</span><strong>{{ formatMoney(totalPaid) }}</strong></div>
           <div v-if="isCreditPayment && creditDebtAmount > 0" class="is-warn">
-            <span>Qarzga:</span><strong>{{ formatMoney(creditDebtAmount) }}</strong>
+            <span>{{ tr('pos.summaryCredit') }}</span><strong>{{ formatMoney(creditDebtAmount) }}</strong>
           </div>
           <div v-else :class="remaining > 0 ? 'is-warn' : 'is-ok'">
-            <span>{{ remaining > 0 ? 'Yetishmaydi:' : 'Qaytim:' }}</span>
+            <span>{{ remaining > 0 ? tr('pos.shortfall') : tr('pos.change') }}</span>
             <strong>{{ formatMoney(remaining > 0 ? remaining : changeAmount) }}</strong>
           </div>
         </div>
@@ -1154,32 +1178,32 @@ onUnmounted(() => {
         <p v-if="submitDisabledHint && !submitting" class="hint payment-submit-hint">
           {{ submitDisabledHint }}
         </p>
-        <button class="btn btn--ghost" type="button" @click="paymentOpen = false">Bekor</button>
+        <button class="btn btn--ghost" type="button" @click="paymentOpen = false">{{ tr('pos.cancel') }}</button>
         <button
           class="btn btn--primary"
           type="button"
           :disabled="submitDisabled"
           @click="submitSale"
         >
-          {{ submitting ? 'Saqlanmoqda...' : 'Savdo qilish' }}
+          {{ submitting ? tr('pos.saving') : tr('pos.submitSale') }}
         </button>
       </template>
     </AppModal>
 
     <AppModal
       :open="receiptOpen"
-      title="Chek"
+      :title="tr('pos.receiptTitle')"
       width="420px"
       @close="receiptOpen = false"
     >
       <div v-if="lastReceipt" class="receipt">
         <p v-if="lastReceipt.offline" class="receipt__offline-ok">
-          Sotuv muvaffaqiyatli (Offline)
+          {{ tr('pos.receiptOfflineOk') }}
         </p>
         <div class="receipt__head">
           <BrandLogo variant="receipt" />
-          <small>{{ new Date(lastReceipt.sold_at).toLocaleString('uz-UZ') }}</small>
-          <small>Chek #{{ lastReceipt.id }}</small>
+          <small>{{ new Date(lastReceipt.sold_at).toLocaleString(numberLocaleForUi(locale)) }}</small>
+          <small>{{ tr('pos.receiptTitle') }} #{{ lastReceipt.id }}</small>
         </div>
         <ul class="receipt__items">
           <li v-for="item in lastReceipt.items" :key="item.id">
@@ -1191,21 +1215,21 @@ onUnmounted(() => {
           </li>
         </ul>
         <div class="receipt__totals">
-          <div><span>Subtotal:</span><strong>{{ formatMoney(lastReceipt.subtotal) }}</strong></div>
+          <div><span>{{ tr('pos.receiptSubtotal') }}</span><strong>{{ formatMoney(lastReceipt.subtotal) }}</strong></div>
           <div v-if="Number(lastReceipt.discount) > 0">
-            <span>Chegirma:</span><strong>-{{ formatMoney(lastReceipt.discount) }}</strong>
+            <span>{{ tr('pos.receiptDiscount') }}</span><strong>-{{ formatMoney(lastReceipt.discount) }}</strong>
           </div>
-          <div class="receipt__final"><span>Jami:</span><strong>{{ formatMoney(lastReceipt.total) }} so‘m</strong></div>
-          <div><span>To‘langan:</span><strong>{{ formatMoney(lastReceipt.paid) }}</strong></div>
+          <div class="receipt__final"><span>{{ tr('pos.receiptTotal') }}</span><strong>{{ formatMoney(lastReceipt.total) }}</strong></div>
+          <div><span>{{ tr('pos.receiptPaid') }}</span><strong>{{ formatMoney(lastReceipt.paid) }}</strong></div>
           <div v-if="Number(lastReceipt.change) > 0">
-            <span>Qaytim:</span><strong>{{ formatMoney(lastReceipt.change) }}</strong>
+            <span>{{ tr('pos.receiptChange') }}</span><strong>{{ formatMoney(lastReceipt.change) }}</strong>
           </div>
         </div>
       </div>
 
       <template #footer>
-        <button class="btn btn--ghost" type="button" @click="printReceipt">Chop etish</button>
-        <button class="btn btn--primary" type="button" @click="receiptOpen = false">Yopish</button>
+        <button class="btn btn--ghost" type="button" @click="printReceipt">{{ tr('pos.print') }}</button>
+        <button class="btn btn--primary" type="button" @click="receiptOpen = false">{{ tr('pos.closeBtn') }}</button>
       </template>
     </AppModal>
   </div>
@@ -1237,11 +1261,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 4px 0 16px;
+  gap: 12px;
+  flex-wrap: nowrap;
+  padding: 0 0 8px;
   border-bottom: 1px solid var(--pv-line);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+.pos-topbar__prefs {
+  flex-shrink: 0;
 }
 
 .pos-topbar__brand {
@@ -1317,7 +1345,7 @@ onUnmounted(() => {
 .pos-dashboard {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: 12px;
   align-items: stretch;
   flex: 1;
   min-height: 0;
@@ -2379,5 +2407,22 @@ onUnmounted(() => {
   .quick-amounts {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+</style>
+
+<style>
+/* Tungi rejim — scoped .pos-view dan keyin */
+[data-theme='dark'] .pos-view {
+  --pv-bg: #0f172a;
+  --pv-panel: #1e293b;
+  --pv-panel-inner: #0f172a;
+  --pv-line: #334155;
+  --pv-text: #f1f5f9;
+  --pv-muted: #94a3b8;
+  --pv-accent: #3b82f6;
+  --pv-accent-dark: #2563eb;
+  --pv-accent-glow: rgba(59, 130, 246, 0.35);
+  --pv-red: #f87171;
+  --pv-red-dark: #ef4444;
 }
 </style>

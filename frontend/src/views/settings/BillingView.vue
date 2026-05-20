@@ -4,22 +4,28 @@ import { computed, onMounted, ref } from 'vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { plans, subscriptions } from '../../services/subscription.service'
 import { useOrganizationStore } from '../../stores/organization'
+import { numberLocaleForUi, useI18n } from '../../i18n'
 
 const org = useOrganizationStore()
+const { tr, locale } = useI18n()
 
 const planList = ref([])
 const loading = ref(true)
 
 const currentPlanCode = computed(() => org.plan?.code || null)
 
+function numberLocale() {
+  return numberLocaleForUi(locale.value)
+}
+
 function formatPrice(value) {
   if (value === null || value === undefined) return '0'
-  return Number(value).toLocaleString('uz-UZ', { maximumFractionDigits: 0 })
+  return Number(value).toLocaleString(numberLocale(), { maximumFractionDigits: 0 })
 }
 
 function endsAtLabel(value) {
   if (!value) return '—'
-  return new Date(value).toLocaleDateString('uz-UZ')
+  return new Date(value).toLocaleDateString(numberLocale())
 }
 
 async function load() {
@@ -38,29 +44,29 @@ onMounted(load)
 
 <template>
   <div>
-    <PageHeader title="Tarif (Subscription)" subtitle="Tashkilotning joriy tarifi va imkoniyatlari" />
+    <PageHeader :title="tr('page.billing.title')" :subtitle="tr('page.billing.subtitle')" />
 
-    <div v-if="loading" class="app-loading">Yuklanmoqda...</div>
+    <div v-if="loading" class="app-loading">{{ tr('page.billing.loading') }}</div>
 
     <template v-else>
       <div class="card" style="margin-bottom: 18px">
         <div style="display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap">
           <div>
-            <h3 style="margin: 0 0 4px">{{ org.plan?.name || 'Tarif tanlanmagan' }}</h3>
+            <h3 style="margin: 0 0 4px">{{ org.plan?.name || tr('page.billing.noPlan') }}</h3>
             <p style="margin: 0; color: var(--text-muted)">
               <template v-if="org.subscription">
-                Tugash sanasi:
+                {{ tr('page.billing.endsAt') }}
                 <strong>{{ endsAtLabel(org.subscription.ends_at) }}</strong> ·
-                Holat: <strong>{{ org.subscription.status }}</strong>
+                {{ tr('page.billing.status') }} <strong>{{ org.subscription.status }}</strong>
               </template>
-              <template v-else>Faol obuna topilmadi.</template>
+              <template v-else>{{ tr('page.billing.noActiveSub') }}</template>
             </p>
           </div>
           <div v-if="org.plan" style="text-align: right">
             <div style="font-size: 1.4rem; font-weight: 700">
-              {{ formatPrice(org.plan.price_monthly) }} so‘m
+              {{ formatPrice(org.plan.price_monthly) }} {{ tr('page.billing.currencySom') }}
             </div>
-            <small style="color: var(--text-muted)">oyiga</small>
+            <small style="color: var(--text-muted)">{{ tr('page.billing.perMonth') }}</small>
           </div>
         </div>
       </div>
@@ -81,26 +87,26 @@ onMounted(load)
 
           <p class="plan-card__price">
             <strong>{{ formatPrice(p.price_monthly) }}</strong>
-            <small>so‘m / oy</small>
+            <small>{{ tr('page.billing.somPerMonth') }}</small>
           </p>
 
           <ul class="plan-card__list">
-            <li>Xodimlar: <strong>{{ p.max_users }} ta</strong></li>
-            <li>Mahsulotlar: <strong>{{ p.max_products }} ta</strong></li>
-            <li>Filiallar: <strong>{{ p.max_branches }} ta</strong></li>
-            <li v-if="p.feature_flags?.batch_tracking">Batch (partiya) hisobi ✓</li>
-            <li v-if="p.feature_flags?.products">Mahsulotlar moduli ✓</li>
+            <li>{{ tr('page.billing.limitUsers', { n: p.max_users }) }}</li>
+            <li>{{ tr('page.billing.limitProducts', { n: p.max_products }) }}</li>
+            <li>{{ tr('page.billing.limitBranches', { n: p.max_branches }) }}</li>
+            <li v-if="p.feature_flags?.batch_tracking">{{ tr('page.billing.featureBatch') }}</li>
+            <li v-if="p.feature_flags?.products">{{ tr('page.billing.featureProducts') }}</li>
           </ul>
 
           <button
             v-if="p.code !== currentPlanCode"
             class="btn btn--primary"
             disabled
-            title="To‘lov integratsiyasi keyingi bosqichda"
+            :title="tr('page.billing.paySoonHint')"
           >
-            Tanlash (tez orada)
+            {{ tr('page.billing.btnChoose') }}
           </button>
-          <button v-else class="btn btn--ghost" disabled>Joriy tarif</button>
+          <button v-else class="btn btn--ghost" disabled>{{ tr('page.billing.btnCurrent') }}</button>
         </div>
       </div>
     </template>

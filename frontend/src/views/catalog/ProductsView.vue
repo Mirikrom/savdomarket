@@ -37,11 +37,13 @@ import {
 import { scheduleFullSync } from '../../offline/syncScheduler'
 import { categories, products } from '../../services/catalog.service'
 import { stockLevels } from '../../services/inventory.service'
+import { collatorLocaleForUi, numberLocaleForUi, useI18n } from '../../i18n'
 import { useAuthStore } from '../../stores/auth'
 import { useOrganizationStore } from '../../stores/organization'
 
 const route = useRoute()
 const auth = useAuthStore()
+const { tr, locale, branchLabel } = useI18n()
 const org = useOrganizationStore()
 
 /** Kassa (POS) mahsulotlar: tan narxi ko‘rinmasin; PATCH da ham yuborilmaydi. */
@@ -59,11 +61,29 @@ const search = ref('')
 const filters = reactive({ syncStatus: '' })
 const pendingSyncMap = ref({ pendingCreateIds: new Set(), pendingUpdateIds: new Set() })
 
-const SYNC_STATUS_LABEL = {
-  synced: 'Sinxronlangan',
-  pending: 'Kutilmoqda (offline)',
-  pending_update: 'Yangilanish kutilmoqda',
+function numberLocale() {
+  return numberLocaleForUi(locale.value)
 }
+
+const syncStatusLabelMap = computed(() => ({
+  synced: tr('page.products.sync.synced'),
+  pending: tr('page.products.sync.pending'),
+  pending_update: tr('page.products.sync.pending_update'),
+}))
+
+const syncStatusFilterOptions = computed(() =>
+  ['synced', 'pending', 'pending_update'].map((code) => ({
+    code,
+    label: syncStatusLabelMap.value[code],
+  })),
+)
+
+const unitOptions = computed(() => [
+  { value: 'piece', label: tr('page.products.unit.piece') },
+  { value: 'kg', label: tr('page.products.unit.kg') },
+  { value: 'liter', label: tr('page.products.unit.liter') },
+  { value: 'pack', label: tr('page.products.unit.pack') },
+])
 
 function productSyncIconKind(status) {
   if (status === 'synced') return 'synced'
@@ -83,13 +103,6 @@ const scanTarget = ref('barcode') // 'barcode' yoki 'search'
 const showQuickCategory = ref(false)
 const newCategoryName = ref('')
 const categorySaving = ref(false)
-
-const UNITS = [
-  { value: 'piece', label: 'Dona' },
-  { value: 'kg', label: 'Kilogramm' },
-  { value: 'liter', label: 'Litr' },
-  { value: 'pack', label: 'Paket' },
-]
 
 const form = reactive({
   name: '',
@@ -156,61 +169,65 @@ function setImagePreviewFromFile(file) {
   imagePreviewUrl.value = imagePreviewBlobUrl
 }
 
-const PRODUCT_COLUMNS_BASE = [
-  {
-    key: '_displayNo',
-    label: '№',
-    width: '56px',
-  },
-  {
-    key: 'image_url',
-    label: 'Rasm',
-    width: '84px',
-  },
-  { key: 'name', label: 'Nomi' },
-  {
-    key: 'category',
-    label: 'Kategoriya',
-    formatter: (v) => categoryList.value.find((c) => c.id === v)?.name || '—',
-    width: '160px',
-  },
-  { key: 'sku', label: 'SKU', width: '120px' },
-  { key: 'barcode', label: 'Shtrix-kod', width: '140px' },
-  {
-    key: 'unit',
-    label: 'Birlik',
-    formatter: (v) => UNITS.find((u) => u.value === v)?.label || v,
-    width: '90px',
-  },
-  {
-    key: '_stockQty',
-    label: 'Qoldiq',
-    width: '120px',
-  },
-  {
-    key: '_syncStatus',
-    label: 'Holat',
-    width: '72px',
-  },
-  {
-    key: 'sell_price',
-    label: 'Narx',
-    formatter: (v) => Number(v).toLocaleString('uz-UZ'),
-    width: '100px',
-  },
-  {
-    key: 'cost_price',
-    label: 'Tan narxi',
-    formatter: (v) => Number(v ?? 0).toLocaleString('uz-UZ'),
-    width: '100px',
-  },
-]
+const productColumnsBase = computed(() => {
+  const loc = numberLocale()
+  return [
+    {
+      key: '_displayNo',
+      label: tr('page.products.colNo'),
+      width: '56px',
+    },
+    {
+      key: 'image_url',
+      label: tr('page.products.colImage'),
+      width: '84px',
+    },
+    { key: 'name', label: tr('page.products.colName') },
+    {
+      key: 'category',
+      label: tr('page.products.colCategory'),
+      formatter: (v) => categoryList.value.find((c) => c.id === v)?.name || '—',
+      width: '160px',
+    },
+    { key: 'sku', label: 'SKU', width: '120px' },
+    { key: 'barcode', label: tr('page.products.colBarcode'), width: '140px' },
+    {
+      key: 'unit',
+      label: tr('page.products.colUnit'),
+      formatter: (v) => unitOptions.value.find((u) => u.value === v)?.label || v,
+      width: '90px',
+    },
+    {
+      key: '_stockQty',
+      label: tr('page.products.colStock'),
+      width: '120px',
+    },
+    {
+      key: '_syncStatus',
+      label: tr('page.products.colStatus'),
+      width: '72px',
+    },
+    {
+      key: 'sell_price',
+      label: tr('page.products.colPrice'),
+      formatter: (v) => Number(v).toLocaleString(loc),
+      width: '100px',
+    },
+    {
+      key: 'cost_price',
+      label: tr('page.products.colCost'),
+      formatter: (v) => Number(v ?? 0).toLocaleString(loc),
+      width: '100px',
+    },
+  ]
+})
 
 const columns = computed(() => {
+  const base = productColumnsBase.value
   if (hideCostInPos.value) {
-    return PRODUCT_COLUMNS_BASE.filter((c) => c.key !== 'cost_price')
+    return base.filter((c) => c.key !== 'cost_price')
   }
-  return PRODUCT_COLUMNS_BASE
+  return base
 })
 
 const filteredRows = computed(() => {
@@ -264,8 +281,9 @@ async function refreshPendingSyncState() {
 
 function formatStockQty(row) {
   const n = Number(row._stockQty ?? 0)
-  const unit = UNITS.find((u) => u.value === row.unit)?.label || row.unit || ''
-  return `${n.toLocaleString('uz-UZ', { maximumFractionDigits: 3 })} ${unit}`.trim()
+  const loc = numberLocale()
+  const unit = unitOptions.value.find((u) => u.value === row.unit)?.label || row.unit || ''
+  return `${n.toLocaleString(loc, { maximumFractionDigits: 3 })} ${unit}`.trim()
 }
 
 
@@ -275,7 +293,9 @@ const nameSuggestions = computed(() => {
   const q = form.name.trim().toLowerCase()
   if (q.length < 2) return []
   const list = rows.value.filter((r) => (r.name || '').toLowerCase().includes(q))
-  list.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'uz'))
+  list.sort((a, b) =>
+    (a.name || '').localeCompare(b.name || '', collatorLocaleForUi(locale.value)),
+  )
   return list.slice(0, 30)
 })
 
@@ -708,18 +728,18 @@ onUnmounted(() => {
 <template>
   <div class="products-view">
     <PageHeader
-      title="Mahsulotlar"
-      subtitle="Katalog — sotuvga chiqariladigan barcha mahsulotlar"
+      :title="tr('page.products.title')"
+      :subtitle="tr('page.products.subtitle')"
     >
       <template #actions>
         <button
           type="button"
           class="btn btn--primary products-view__add"
-          :title="!isOnline ? 'Offline — server yoqilganda sinxron qilinadi' : ''"
+          :title="!isOnline ? tr('page.products.offlineHint') : ''"
           @click="openCreate"
         >
           <span class="products-view__add-icon" aria-hidden="true">+</span>
-          Yangi mahsulot
+          {{ tr('page.products.addNew') }}
         </button>
       </template>
     </PageHeader>
@@ -733,14 +753,14 @@ onUnmounted(() => {
       class="products-view__sync-banner"
       role="status"
     >
-      {{ pendingProductsCount }} ta mahsulot sinxronlash kutilmoqda
+      {{ tr('page.products.syncBanner', { n: pendingProductsCount }) }}
     </p>
 
     <div class="products-view__toolbar card">
       <select v-model="filters.syncStatus" class="products-view__filter-select">
-        <option value="">Barcha holatlar</option>
-        <option v-for="(label, code) in SYNC_STATUS_LABEL" :key="code" :value="code">
-          {{ label }}
+        <option value="">{{ tr('page.products.filterAllStatuses') }}</option>
+        <option v-for="opt in syncStatusFilterOptions" :key="opt.code" :value="opt.code">
+          {{ opt.label }}
         </option>
       </select>
       <div class="products-view__search-wrap">
@@ -749,12 +769,12 @@ onUnmounted(() => {
           v-model="search"
           class="products-view__search"
           type="search"
-          placeholder="Nom, SKU yoki shtrix-kod bo‘yicha qidiring…"
+          :placeholder="tr('page.products.searchPlaceholder')"
         />
       </div>
       <button class="btn btn--ghost products-view__scan" type="button" @click="openScanner('search')">
         <span aria-hidden="true">▣</span>
-        Skaner
+        {{ tr('page.products.btnScanner') }}
       </button>
     </div>
 
@@ -764,7 +784,7 @@ onUnmounted(() => {
         :rows="displayRows"
         :loading="loading"
         actions-label=""
-        empty-text="Hozircha mahsulotlar yo‘q. Birinchisini yarating."
+        :empty-text="tr('page.products.emptyTable')"
         @row-click="openEdit"
       >
         <template #cell:image_url="{ row }">
@@ -800,15 +820,15 @@ onUnmounted(() => {
         <template #cell:_syncStatus="{ row }">
           <SyncStatusIcon
             :kind="productSyncIconKind(row._syncStatus)"
-            :label="SYNC_STATUS_LABEL[row._syncStatus] || row._syncStatus"
+            :label="syncStatusLabelMap[row._syncStatus] || row._syncStatus"
           />
         </template>
         <template #actions="{ row }">
           <button
             type="button"
             class="products-view__del"
-            title="O‘chirish"
-            aria-label="O‘chirish"
+            :title="tr('page.products.deleteAria')"
+            :aria-label="tr('page.products.deleteAria')"
             @click.stop="remove(row)"
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
@@ -828,7 +848,7 @@ onUnmounted(() => {
 
     <AppModal
       :open="modalOpen"
-      :title="editingId ? 'Mahsulotni tahrirlash' : 'Yangi mahsulot'"
+      :title="editingId ? tr('page.products.modalEditTitle') : tr('page.products.modalNewTitle')"
       width="min(92vw, 720px)"
       @close="modalOpen = false"
     >
@@ -904,7 +924,7 @@ onUnmounted(() => {
               <span>Filial</span>
               <select v-model="form.branch">
                 <option value="">— Hammasi —</option>
-                <option v-for="b in org.branches" :key="b.id" :value="String(b.id)">{{ b.name }}</option>
+                <option v-for="b in org.branches" :key="b.id" :value="String(b.id)">{{ branchLabel(b) }}</option>
               </select>
             </label>
             <label class="field">
@@ -970,7 +990,7 @@ onUnmounted(() => {
             <label class="field">
               <span>Birlik</span>
               <select v-model="form.unit">
-                <option v-for="u in UNITS" :key="u.value" :value="u.value">{{ u.label }}</option>
+                <option v-for="u in unitOptions" :key="u.value" :value="u.value">{{ u.label }}</option>
               </select>
             </label>
             <label class="field">
@@ -985,7 +1005,7 @@ onUnmounted(() => {
               <button
                 class="btn btn--ghost btn--sm"
                 type="button"
-                title="Kameradan o‘qish"
+                :title="tr('page.products.scanCameraTitle')"
                 @click="openScanner('barcode')"
               >
                 ▣
@@ -1027,7 +1047,7 @@ onUnmounted(() => {
 
     <BarcodeScanner
       :open="scannerOpen"
-      :title="scanTarget === 'search' ? 'Mahsulotni topish' : 'Shtrix-kod skaneri'"
+      :title="scanTarget === 'search' ? tr('page.products.scanTitleSearch') : tr('page.products.scanTitleBarcode')"
       @close="scannerOpen = false"
       @scanned="onScanned"
     />
@@ -1586,5 +1606,16 @@ onUnmounted(() => {
   .products-view__scan span {
     display: none;
   }
+}
+</style>
+
+<style>
+[data-theme='dark'] .products-view {
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --line: #334155;
+  --surface: #1e293b;
+  --surface-soft: #0f172a;
+  color: var(--text);
 }
 </style>

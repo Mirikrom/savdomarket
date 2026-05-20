@@ -3,8 +3,10 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import providerService from '../../services/provider.service'
+import { useI18n } from '../../i18n'
 
 const route = useRoute()
+const { tr } = useI18n()
 const stats = ref(null)
 const loading = ref(true)
 const error = ref(null)
@@ -42,11 +44,11 @@ watch(
   <div class="prov-page">
     <header class="prov-page__header">
       <div>
-        <h1 class="prov-page__title">Boshqaruv paneli</h1>
-        <p class="prov-page__subtitle">Tashkilotlar, obunalar va foydalanuvchilar</p>
+        <h1 class="prov-page__title">{{ tr('provHome.title') }}</h1>
+        <p class="prov-page__subtitle">{{ tr('provHome.subtitle') }}</p>
       </div>
       <button class="prov-btn" @click="load" :disabled="loading">
-        {{ loading ? 'Yuklanmoqda...' : 'Yangilash' }}
+        {{ loading ? tr('provHome.loading') : tr('provHome.refresh') }}
       </button>
     </header>
 
@@ -54,42 +56,46 @@ watch(
 
     <section v-if="stats" class="prov-grid">
       <article class="prov-card">
-        <div class="prov-card__label">Tashkilotlar</div>
+        <div class="prov-card__label">{{ tr('provHome.card.orgs') }}</div>
         <div class="prov-card__value">{{ fmt(stats.organizations.total) }}</div>
         <div class="prov-card__meta">
-          <span class="prov-badge prov-badge--ok">{{ stats.organizations.active }} faol</span>
+          <span class="prov-badge prov-badge--ok">{{
+            tr('provHome.badge.active', { n: stats.organizations.active })
+          }}</span>
           <span class="prov-badge prov-badge--warn" v-if="stats.organizations.suspended">
-            {{ stats.organizations.suspended }} bloklangan
+            {{ tr('provHome.badge.blocked', { n: stats.organizations.suspended }) }}
           </span>
         </div>
-        <div class="prov-card__hint">+{{ stats.organizations.new_30d }} oxirgi 30 kun</div>
+        <div class="prov-card__hint">{{ tr('provHome.hint.new30', { n: stats.organizations.new_30d }) }}</div>
       </article>
 
       <article class="prov-card">
-        <div class="prov-card__label">Faol obunalar</div>
+        <div class="prov-card__label">{{ tr('provHome.card.subs') }}</div>
         <div class="prov-card__value">{{ fmt(stats.subscriptions.active_total) }}</div>
         <div class="prov-card__meta">
           <span class="prov-badge prov-badge--warn" v-if="stats.subscriptions.expiring_soon">
-            {{ stats.subscriptions.expiring_soon }} tugayapti
+            {{ tr('provHome.badge.expiring', { n: stats.subscriptions.expiring_soon }) }}
           </span>
           <span class="prov-badge prov-badge--danger" v-if="stats.subscriptions.expired">
-            {{ stats.subscriptions.expired }} tugagan
+            {{ tr('provHome.badge.expired', { n: stats.subscriptions.expired }) }}
           </span>
         </div>
-        <div class="prov-card__hint">7 kun ichida tugaydiganlar</div>
+        <div class="prov-card__hint">{{ tr('provHome.hint.expiring7') }}</div>
       </article>
 
       <article class="prov-card">
-        <div class="prov-card__label">Foydalanuvchilar</div>
+        <div class="prov-card__label">{{ tr('provHome.card.users') }}</div>
         <div class="prov-card__value">{{ fmt(stats.users.total) }}</div>
         <div class="prov-card__meta">
-          <span class="prov-badge prov-badge--ok">{{ stats.users.active_30d }} faol (30 kun)</span>
+          <span class="prov-badge prov-badge--ok">{{
+            tr('provHome.badge.users30', { n: stats.users.active_30d })
+          }}</span>
         </div>
       </article>
     </section>
 
     <section v-if="stats" class="prov-section">
-      <h2 class="prov-section__title">Tariflar bo'yicha taqsimot</h2>
+      <h2 class="prov-section__title">{{ tr('provHome.section.plans') }}</h2>
       <div class="prov-plans">
         <article
           v-for="row in stats.subscriptions.by_plan"
@@ -98,10 +104,10 @@ watch(
         >
           <div class="prov-plan__name">{{ row.plan__name || row.plan__code }}</div>
           <div class="prov-plan__count">{{ row.count }}</div>
-          <div class="prov-plan__label">aktiv tashkilot</div>
+          <div class="prov-plan__label">{{ tr('provHome.planRowLabel') }}</div>
         </article>
         <article v-if="!stats.subscriptions.by_plan.length" class="prov-plan prov-plan--empty">
-          Hozircha tariflar bo'yicha ma'lumot yo'q
+          {{ tr('provHome.planEmpty') }}
         </article>
       </div>
     </section>

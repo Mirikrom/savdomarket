@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
 import AppModal from '../../components/AppModal.vue'
 import DataTable from '../../components/DataTable.vue'
@@ -11,9 +11,11 @@ import { isOfflineMode } from '../../offline/connectivity'
 import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
 import { loadSalesFromIndexedDB } from '../../offline/salesCache'
 import { sales as salesApi } from '../../services/sales.service'
+import { numberLocaleForUi, useI18n } from '../../i18n'
 import { useOrganizationStore } from '../../stores/organization'
 
 const org = useOrganizationStore()
+const { tr, locale, branchLabel, branchName } = useI18n()
 
 const rows = ref([])
 const loading = ref(true)
@@ -30,12 +32,19 @@ const filters = reactive({
   date_to: '',
 })
 
-const STATUS_LABEL = {
-  completed: 'Bajarilgan',
-  canceled: 'Bekor',
-  returned: 'Qaytarilgan',
-  pending: 'Kutilmoqda (offline)',
-}
+const statusLabelMap = computed(() => ({
+  completed: tr('page.salesHistory.status.completed'),
+  canceled: tr('page.salesHistory.status.canceled'),
+  returned: tr('page.salesHistory.status.returned'),
+  pending: tr('page.salesHistory.status.pending'),
+}))
+
+const statusFilterOptions = computed(() =>
+  ['completed', 'canceled', 'returned', 'pending'].map((code) => ({
+    code,
+    label: statusLabelMap.value[code],
+  })),
+)
 
 function saleStatusIconKind(status) {
   if (status === 'completed') return 'synced'
@@ -45,38 +54,58 @@ function saleStatusIconKind(status) {
   return 'pending'
 }
 
-const columns = [
-  {
-    key: 'sold_at',
-    label: 'Vaqt',
-    formatter: (v) => (v ? new Date(v).toLocaleString('uz-UZ', { hour12: false }) : '—'),
-    width: '160px',
-  },
-  { key: 'id', label: 'Chek №', width: '80px' },
-  {
-    key: 'branch_name',
-    label: 'Filial',
-    formatter: (v) => v || '—',
-    width: '140px',
-  },
-  {
-    key: 'cashier_name',
-    label: 'Kassir',
-    formatter: (v) => v || '—',
-    width: '140px',
-  },
-  {
-    key: 'debtor_name',
-    label: 'Qarzdor',
-    formatter: (v) => v || '—',
-    width: '140px',
-  },
-  { key: 'status', label: 'Holat', width: '72px' },
-  { key: 'total', label: 'Summa', width: '120px' },
-]
+const columns = computed(() => {
+  const loc = numberLocaleForUi(locale.value)
+  return [
+    {
+      key: 'sold_at',
+      label: tr('page.salesHistory.colTime'),
+      formatter: (v) => (v ? new Date(v).toLocaleString(loc, { hour12: false }) : '—'),
+      width: '160px',
+    },
+    { key: 'id', label: tr('page.salesHistory.colReceiptNo'), width: '80px' },
+    {
+      key: 'branch_name',
+      label: tr('page.salesHistory.colBranch'),
+      formatter: (v) => branchName(v, org.branches),
+      width: '140px',
+    },
+    {
+      key: 'cashier_name',
+      label: tr('page.salesHistory.colCashier'),
+      formatter: (v) => v || '—',
+      width: '140px',
+    },
+    {
+      key: 'debtor_name',
+      label: tr('page.salesHistory.colDebtor'),
+      formatter: (v) => v || '—',
+      width: '140px',
+    },
+    { key: 'status', label: tr('page.salesHistory.colStatus'), width: '72px' },
+    { key: 'total', label: tr('page.salesHistory.colAmount'), width: '120px' },
+  ]
+})
+
+const detailModalTitle = computed(() => {
+  void locale.value
+  if (!detail.value) return tr('page.salesHistory.receiptLabel')
+  return tr('page.salesHistory.detailTitle', { id: detail.value.id })
+})
 
 function formatMoney(n) {
-  return Number(n || 0).toLocaleString('uz-UZ', { maximumFractionDigits: 0 })
+  const num = Number(n || 0).toLocaleString(numberLocaleForUi(locale.value), {
+    maximumFractionDigits: 0,
+  })
+  return `${num} ${tr('page.billing.currencySom')}`
+}
+
+function paymentMethodLabel(method) {
+  if (method === 'cash') return tr('page.salesHistory.payCash')
+  if (method === 'card') return tr('page.salesHistory.payCard')
+  if (method === 'mixed') return tr('pos.payTab.mixed')
+  if (method === 'transfer') return tr('page.debtors.methodTransfer')
+  return method || '—'
 }
 
 async function fetchSales() {
@@ -180,24 +209,24 @@ onUnmounted(() => {
 
 <template>
   <div>
-    <PageHeader title="Savdolar tarixi" subtitle="Barcha cheklar, filtr va batafsil ko‘rinish" />
+    <PageHeader :title="tr('page.salesHistory.title')" :subtitle="tr('page.salesHistory.subtitle')" />
 
     <div class="card filter-bar">
       <select v-model="filters.branch" class="filter-select">
-        <option value="">Barcha filiallar</option>
-        <option v-for="b in org.branches" :key="b.id" :value="b.id">{{ b.name }}</option>
+        <option value="">{{ tr('page.movements.filterAllBranches') }}</option>
+        <option v-for="b in org.branches" :key="b.id" :value="b.id">{{ branchLabel(b) }}</option>
       </select>
 
       <select v-model="filters.status" class="filter-select">
-        <option value="">Barcha holatlar</option>
-        <option v-for="(label, code) in STATUS_LABEL" :key="code" :value="code">{{ label }}</option>
+        <option value="">{{ tr('page.salesHistory.filterAllStatuses') }}</option>
+        <option v-for="opt in statusFilterOptions" :key="opt.code" :value="opt.code">{{ opt.label }}</option>
       </select>
 
       <input v-model="filters.date_from" type="date" class="filter-input" />
       <input v-model="filters.date_to" type="date" class="filter-input" />
 
       <button class="btn btn--ghost btn--sm" type="button" @click="clearFilters">
-        Tozalash
+        {{ tr('page.salesHistory.clearFilters') }}
       </button>
     </div>
 
@@ -206,42 +235,42 @@ onUnmounted(() => {
       :rows="rows"
       :loading="loading"
       clickable
-      empty-text="Hozircha savdolar yo‘q."
+      :empty-text="tr('page.salesHistory.emptyTable')"
       @row-click="showDetail"
     >
       <template #cell:status="{ row }">
         <SyncStatusIcon
           :kind="saleStatusIconKind(row.status)"
-          :label="STATUS_LABEL[row.status] || row.status"
+          :label="statusLabelMap[row.status] || row.status"
         />
       </template>
       <template #cell:total="{ row }">
         <strong>{{ formatMoney(row.total) }}</strong>
       </template>
       <template #actions="{ row }">
-        <button class="icon-btn" type="button" @click.stop="openReceipt(row)">Chop etish</button>
-        <button class="icon-btn" type="button" @click.stop="showDetail(row)">Ko‘rish</button>
+        <button class="icon-btn" type="button" @click.stop="openReceipt(row)">{{ tr('page.salesHistory.btnPrint') }}</button>
+        <button class="icon-btn" type="button" @click.stop="showDetail(row)">{{ tr('page.salesHistory.btnView') }}</button>
       </template>
     </DataTable>
 
     <AppModal
       :open="detailOpen"
-      :title="detail ? `Chek #${detail.id}` : 'Chek'"
+      :title="detailModalTitle"
       width="520px"
       @close="detailOpen = false"
     >
       <div v-if="detail" class="sale-detail">
         <div class="sale-detail__meta">
-          <div><span>Vaqt:</span><strong>{{ new Date(detail.sold_at).toLocaleString('uz-UZ') }}</strong></div>
-          <div><span>Filial:</span><strong>{{ detail.branch_name || '—' }}</strong></div>
-          <div><span>Kassir:</span><strong>{{ detail.cashier_name || '—' }}</strong></div>
+          <div><span>{{ tr('page.salesHistory.metaTime') }}</span><strong>{{ new Date(detail.sold_at).toLocaleString(numberLocaleForUi(locale)) }}</strong></div>
+          <div><span>{{ tr('page.salesHistory.metaBranch') }}</span><strong>{{ branchName(detail.branch_name, org.branches) }}</strong></div>
+          <div><span>{{ tr('page.salesHistory.metaCashier') }}</span><strong>{{ detail.cashier_name || '—' }}</strong></div>
           <div v-if="detail.debtor_name">
-            <span>Qarzdor:</span><strong>{{ detail.debtor_name }}</strong>
+            <span>{{ tr('page.salesHistory.metaDebtor') }}</span><strong>{{ detail.debtor_name }}</strong>
           </div>
-          <div><span>Holat:</span><strong>{{ STATUS_LABEL[detail.status] || detail.status }}</strong></div>
+          <div><span>{{ tr('page.salesHistory.metaStatus') }}</span><strong>{{ statusLabelMap[detail.status] || detail.status }}</strong></div>
         </div>
 
-        <h4>Mahsulotlar</h4>
+        <h4>{{ tr('page.salesHistory.sectionProducts') }}</h4>
         <ul class="sale-detail__items">
           <li v-for="item in detail.items" :key="item.id">
             <div>
@@ -252,50 +281,50 @@ onUnmounted(() => {
           </li>
         </ul>
 
-        <h4>To‘lov</h4>
+        <h4>{{ tr('page.salesHistory.sectionPayment') }}</h4>
         <ul class="sale-detail__items">
           <li v-for="p in detail.payments" :key="p.id">
-            <div><strong>{{ p.method === 'cash' ? 'Naqd' : p.method === 'card' ? 'Karta' : p.method }}</strong></div>
+            <div><strong>{{ paymentMethodLabel(p.method) }}</strong></div>
             <strong>{{ formatMoney(p.amount) }}</strong>
           </li>
         </ul>
 
         <div class="sale-detail__totals">
-          <div><span>Subtotal:</span><strong>{{ formatMoney(detail.subtotal) }}</strong></div>
+          <div><span>{{ tr('pos.receiptSubtotal') }}</span><strong>{{ formatMoney(detail.subtotal) }}</strong></div>
           <div v-if="Number(detail.discount) > 0">
-            <span>Chegirma:</span><strong>-{{ formatMoney(detail.discount) }}</strong>
+            <span>{{ tr('pos.receiptDiscount') }}</span><strong>-{{ formatMoney(detail.discount) }}</strong>
           </div>
           <div class="sale-detail__final">
-            <span>Jami:</span><strong>{{ formatMoney(detail.total) }} so‘m</strong>
+            <span>{{ tr('pos.receiptTotal') }}</span><strong>{{ formatMoney(detail.total) }}</strong>
           </div>
-          <div><span>To‘langan:</span><strong>{{ formatMoney(detail.paid) }}</strong></div>
+          <div><span>{{ tr('pos.receiptPaid') }}</span><strong>{{ formatMoney(detail.paid) }}</strong></div>
           <div v-if="Number(detail.balance_due) > 0" class="sale-detail__debt">
-            <span>Qarz:</span><strong>{{ formatMoney(detail.balance_due) }} so‘m</strong>
+            <span>{{ tr('pos.summaryCredit') }}</span><strong>{{ formatMoney(detail.balance_due) }}</strong>
           </div>
           <div v-if="Number(detail.change) > 0">
-            <span>Qaytim:</span><strong>{{ formatMoney(detail.change) }}</strong>
+            <span>{{ tr('pos.receiptChange') }}</span><strong>{{ formatMoney(detail.change) }}</strong>
           </div>
         </div>
       </div>
 
       <template #footer>
-        <button class="btn btn--ghost" type="button" @click="reprintFromDetail">Qayta chop etish</button>
-        <button class="btn btn--primary" type="button" @click="detailOpen = false">Yopish</button>
+        <button class="btn btn--ghost" type="button" @click="reprintFromDetail">{{ tr('page.salesHistory.reprint') }}</button>
+        <button class="btn btn--primary" type="button" @click="detailOpen = false">{{ tr('pos.closeBtn') }}</button>
       </template>
     </AppModal>
 
     <AppModal
       :open="receiptOpen"
-      title="Chek chop etish"
+      :title="tr('page.salesHistory.receiptModalTitle')"
       width="420px"
       @close="receiptOpen = false"
     >
-      <div v-if="receiptLoading" class="sales-history__receipt-loading">Yuklanmoqda...</div>
+      <div v-if="receiptLoading" class="sales-history__receipt-loading">{{ tr('app.boot.loading') }}</div>
       <SaleReceipt v-else-if="receiptSale" :sale="receiptSale" />
 
       <template #footer>
-        <button class="btn btn--ghost" type="button" @click="printReceipt">Chop etish</button>
-        <button class="btn btn--primary" type="button" @click="receiptOpen = false">Yopish</button>
+        <button class="btn btn--ghost" type="button" @click="printReceipt">{{ tr('page.salesHistory.btnPrint') }}</button>
+        <button class="btn btn--primary" type="button" @click="receiptOpen = false">{{ tr('pos.closeBtn') }}</button>
       </template>
     </AppModal>
   </div>

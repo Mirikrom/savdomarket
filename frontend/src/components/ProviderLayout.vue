@@ -2,13 +2,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
+import AppPreferencesBar from './AppPreferencesBar.vue'
 import BrandLogo from './BrandLogo.vue'
+import { useI18n } from '../i18n'
 import { useAuthStore } from '../stores/auth'
 import { logout as logoutService } from '../services/auth.service'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const { tr } = useI18n()
 
 function navActive(to) {
   if (to === '/provider') return route.path === '/provider' || route.path === '/provider/'
@@ -19,13 +22,13 @@ const navOpen = ref(false)
 const userMenuOpen = ref(false)
 const isLoading = ref(true)
 
-const navItems = [
-  { to: '/provider', label: 'Boshqaruv paneli', icon: 'dashboard' },
-  { to: '/provider/orgs', label: 'Tashkilotlar', icon: 'orgs' },
-  { to: '/provider/plans', label: 'Tariflar', icon: 'plan' },
-  { to: '/provider/mijozlar', label: 'Mijozlar', icon: 'users' },
-  { to: '/provider/settings', label: 'Sozlamalar', icon: 'settings' },
-]
+const navItems = computed(() => [
+  { to: '/provider', label: tr('provider.nav.dashboard'), icon: 'dashboard' },
+  { to: '/provider/orgs', label: tr('provider.nav.orgs'), icon: 'orgs' },
+  { to: '/provider/plans', label: tr('provider.nav.plans'), icon: 'plan' },
+  { to: '/provider/mijozlar', label: tr('provider.nav.clients'), icon: 'users' },
+  { to: '/provider/settings', label: tr('provider.nav.settings'), icon: 'settings' },
+])
 
 const initials = computed(() => {
   const name = auth.user?.full_name || auth.user?.phone || 'SA'
@@ -123,7 +126,7 @@ function closeNav() {
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 18 9 12 15 6" />
           </svg>
-          Mijoz panelga
+          {{ tr('provider.backToApp') }}
         </button>
       </div>
     </aside>
@@ -135,10 +138,12 @@ function closeNav() {
         </button>
 
         <div class="prov-topbar__brand">
-          <span class="prov-topbar__title">Super Admin Paneli</span>
+          <span class="prov-topbar__title">{{ tr('provider.topbar.title') }}</span>
         </div>
 
-        <div class="prov-user" @click.stop="userMenuOpen = !userMenuOpen">
+        <div class="prov-topbar__actions">
+          <AppPreferencesBar dark-surface />
+          <div class="prov-user" @click.stop="userMenuOpen = !userMenuOpen">
           <div class="prov-user__avatar">{{ initials }}</div>
           <div class="prov-user__info">
             <div class="prov-user__name">{{ auth.user?.full_name || 'Provider' }}</div>
@@ -147,12 +152,13 @@ function closeNav() {
 
           <div v-if="userMenuOpen" class="prov-user__menu" @click.stop>
             <button class="prov-user__menu-item" @click="router.push('/app')">
-              Mijoz panelga o'tish
+              {{ tr('provider.user.toApp') }}
             </button>
             <button class="prov-user__menu-item is-danger" @click="logout">
-              Chiqish
+              {{ tr('provider.user.logout') }}
             </button>
           </div>
+        </div>
         </div>
       </header>
 
@@ -311,6 +317,13 @@ function closeNav() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.prov-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .prov-burger {

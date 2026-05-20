@@ -14,7 +14,7 @@ export function localDebtorRef(clientUuid) {
   return `${LOCAL_DEBTOR_PREFIX}${clientUuid}`
 }
 
-export async function createOfflineDebtor(organizationId, { name, phone = '', note = '' }) {
+export async function createOfflineDebtor(organizationId, { name, phone = '', note = '', due_date = null }) {
   const orgId = normalizeOrgId(organizationId)
   const client_uuid = newClientUuid()
   const row = toPlainJson({
@@ -24,6 +24,7 @@ export async function createOfflineDebtor(organizationId, { name, phone = '', no
     name: String(name || '').trim(),
     phone: String(phone || '').trim(),
     note: String(note || '').trim(),
+    due_date: due_date || null,
     server_id: null,
     balance_due: 0,
     is_active: true,
@@ -39,7 +40,10 @@ export async function createOfflineDebtor(organizationId, { name, phone = '', no
       name: row.name,
       phone: row.phone,
       note: row.note,
+      due_date: row.due_date || null,
       balance_due: 0,
+      total_credit: 0,
+      total_paid: 0,
       is_active: true,
       _offlinePending: true,
       _client_uuid: client_uuid,
@@ -66,7 +70,10 @@ export async function loadDebtorsMerged(organizationId) {
       name: p.name,
       phone: p.phone || '',
       note: p.note || '',
+      due_date: p.due_date || null,
       balance_due: Number(p.balance_due || 0),
+      total_credit: 0,
+      total_paid: 0,
       is_active: true,
       _offlinePending: true,
       _client_uuid: p.client_uuid,
