@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from core.permissions import IsOrganizationMember, RolePermissionRequired
 from core.tenant import get_membership
+from sales.debt_utils import debtors_stats_bulk
 from sales.models import Debtor, DebtPayment, Payment, Sale, SaleItem
 from sales.serializers import (
     DebtorSerializer,
@@ -164,6 +165,35 @@ class DebtorViewSet(viewsets.ModelViewSet):
         ctx["membership"] = get_membership(self.request)
         return ctx
 
+    def _debtor_stats(self, debtor_ids):
+        membership = get_membership(self.request)
+        if not membership or not debtor_ids:
+            return {}
+        return debtors_stats_bulk(membership.organization_id, list(debtor_ids))
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        stats = self._debtor_stats(queryset.values_list("id", flat=True))
+        page = self.paginate_queryset(queryset)
+        items = page if page is not None else queryset
+        serializer = DebtorSerializer(
+            items,
+            many=True,
+            context={**self.get_serializer_context(), "stats_by_id": stats},
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        stats = self._debtor_stats([instance.id])
+        serializer = DebtorSerializer(
+            instance,
+            context={**self.get_serializer_context(), "stats_by_id": stats},
+        )
+        return Response(serializer.data)
+
     def get_queryset(self):
         membership = get_membership(self.request)
         if not membership:
@@ -188,16 +218,20 @@ class DebtorViewSet(viewsets.ModelViewSet):
                 organization=membership.organization, client_uuid=client_uuid
             ).first()
             if existing:
+                stats = self._debtor_stats([existing.id])
                 read_serializer = DebtorSerializer(
-                    existing, context=self.get_serializer_context()
+                    existing,
+                    context={**self.get_serializer_context(), "stats_by_id": stats},
                 )
                 return Response(read_serializer.data, status=status.HTTP_200_OK)
 
         write_serializer = self.get_serializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
         self.perform_create(write_serializer)
+        stats = self._debtor_stats([write_serializer.instance.id])
         read_serializer = DebtorSerializer(
-            write_serializer.instance, context=self.get_serializer_context()
+            write_serializer.instance,
+            context={**self.get_serializer_context(), "stats_by_id": stats},
         )
         return Response(read_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -207,7 +241,11 @@ class DebtorViewSet(viewsets.ModelViewSet):
         write_serializer = self.get_serializer(instance, data=request.data, partial=partial)
         write_serializer.is_valid(raise_exception=True)
         write_serializer.save()
-        read_serializer = DebtorSerializer(instance, context=self.get_serializer_context())
+        stats = self._debtor_stats([instance.id])
+        read_serializer = DebtorSerializer(
+            instance,
+            context={**self.get_serializer_context(), "stats_by_id": stats},
+        )
         return Response(read_serializer.data)
 
     def perform_destroy(self, instance):
@@ -226,7 +264,10 @@ class DebtorViewSet(viewsets.ModelViewSet):
         write_serializer.is_valid(raise_exception=True)
         payment = write_serializer.save()
         read_serializer = DebtPaymentReadSerializer(payment)
-        debtor_data = DebtorSerializer(debtor, context={"membership": membership}).data
+        stats = debtors_stats_bulk(membership.organization_id, [debtor.id])
+        debtor_data = DebtorSerializer(
+            debtor, context={"membership": membership, "stats_by_id": stats}
+        ).data
         return Response(
             {"payment": read_serializer.data, "debtor": debtor_data},
             status=status.HTTP_201_CREATED,

@@ -8,7 +8,7 @@ from rest_framework import serializers
 from catalog.models import Product
 from inventory.models import StockMovement
 from inventory.stock_utils import get_product_quantity_at_branch
-from sales.debt_utils import debtor_balance_due
+from sales.debt_utils import debtors_stats_bulk, debtor_balance_due
 from sales.models import Debtor, DebtPayment, Payment, Sale, SaleItem
 from shops.models import Branch
 
@@ -313,6 +313,11 @@ class SaleCreateSerializer(serializers.Serializer):
 
 class DebtorSerializer(serializers.ModelSerializer):
     balance_due = serializers.SerializerMethodField()
+    total_credit = serializers.SerializerMethodField()
+    total_paid = serializers.SerializerMethodField()
+    first_credit_at = serializers.SerializerMethodField()
+    last_credit_at = serializers.SerializerMethodField()
+    last_payment_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Debtor
@@ -321,18 +326,55 @@ class DebtorSerializer(serializers.ModelSerializer):
             "name",
             "phone",
             "note",
+            "due_date",
             "is_active",
+            "total_credit",
+            "total_paid",
             "balance_due",
+            "first_credit_at",
+            "last_credit_at",
+            "last_payment_at",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "balance_due", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "total_credit",
+            "total_paid",
+            "balance_due",
+            "first_credit_at",
+            "last_credit_at",
+            "last_payment_at",
+            "created_at",
+            "updated_at",
+        ]
 
-    def get_balance_due(self, obj):
+    def _stats(self, obj):
+        cached = self.context.get("stats_by_id")
+        if cached is not None:
+            return cached.get(obj.id, {})
         membership = self.context.get("membership")
         if not membership:
-            return Decimal("0")
-        return debtor_balance_due(membership.organization_id, obj.id)
+            return {}
+        return debtors_stats_bulk(membership.organization_id, [obj.id]).get(obj.id, {})
+
+    def get_balance_due(self, obj):
+        return self._stats(obj).get("balance_due", Decimal("0"))
+
+    def get_total_credit(self, obj):
+        return self._stats(obj).get("total_credit", Decimal("0"))
+
+    def get_total_paid(self, obj):
+        return self._stats(obj).get("total_paid", Decimal("0"))
+
+    def get_first_credit_at(self, obj):
+        return self._stats(obj).get("first_credit_at")
+
+    def get_last_credit_at(self, obj):
+        return self._stats(obj).get("last_credit_at")
+
+    def get_last_payment_at(self, obj):
+        return self._stats(obj).get("last_payment_at")
 
 
 class DebtorWriteSerializer(serializers.ModelSerializer):
@@ -340,7 +382,7 @@ class DebtorWriteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Debtor
-        fields = ["name", "phone", "note", "client_uuid"]
+        fields = ["name", "phone", "note", "due_date", "client_uuid"]
 
     def validate_name(self, value):
         value = (value or "").strip()

@@ -453,7 +453,7 @@ class ResetPasswordSerializer(serializers.Serializer):
 
 class LanguageSerializer(serializers.Serializer):
     preferred_language = serializers.ChoiceField(
-        choices=[User.LanguageChoices.UZ, User.LanguageChoices.RU, User.LanguageChoices.EN]
+        choices=[User.LanguageChoices.UZ, User.LanguageChoices.RU]
     )
 
 

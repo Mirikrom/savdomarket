@@ -16,6 +16,7 @@ class Debtor(TimeStampedModel, SoftDeleteModel):
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=32, blank=True)
     note = models.CharField(max_length=500, blank=True)
+    due_date = models.DateField(null=True, blank=True, help_text="Qarz qaytarish muddati")
     client_uuid = models.UUIDField(null=True, blank=True, editable=False, db_index=True)
 
     class Meta:

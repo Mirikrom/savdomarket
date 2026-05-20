@@ -10,7 +10,6 @@ class User(AbstractUser, TimeStampedModel):
     class LanguageChoices(models.TextChoices):
         UZ = "uz", "Uzbek"
         RU = "ru", "Russian"
-        EN = "en", "English"
 
     username = models.CharField(max_length=150, unique=True, null=True, blank=True)
     email = models.EmailField(blank=True)
