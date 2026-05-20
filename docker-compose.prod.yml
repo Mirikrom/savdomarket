@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:16
+    container_name: savdopro-db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-savdopro}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+    container_name: savdopro-backend
+    env_file:
+      - .env
+    ports:
+      - "${BACKEND_PUBLISH_PORT:-8011}:8000"
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: savdopro-frontend
+    ports:
+      - "${FRONTEND_PUBLISH_PORT:-51711}:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
