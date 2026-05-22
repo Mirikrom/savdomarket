@@ -4,15 +4,16 @@ The active backend is configured via ``settings.SMS_BACKEND`` and must implement
 ``send(phone, message)``. In development the ``ConsoleSmsBackend`` is used so
 no real money is spent — codes simply appear in the Django console.
 
-For production switch ``SMS_BACKEND`` to ``EskizSmsBackend`` (or any other) and
+For production use ``DevsmsBackend`` (devsms.uz) or ``EskizSmsBackend`` and
 provide credentials in env vars.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 from django.utils.module_loading import import_string
@@ -38,6 +39,78 @@ class ConsoleSmsBackend(SmsBackend):
             banner,
         )
         print(f"\n{banner}\n[SMS:CONSOLE] To: {phone}\n{message}\n{banner}\n", flush=True)
+
+
+def _digits_phone(phone: str) -> str:
+    """devsms.uz: 998901234567 (faqat raqamlar, + siz)."""
+    return re.sub(r"\D", "", (phone or "").lstrip("+"))
+
+
+class DevsmsBackend(SmsBackend):
+    """devsms.uz — Bearer token bilan SMS yuborish.
+
+    Sozlamalar (.env):
+        DEVSMS_TOKEN   — kabinetdan olingan Bearer token
+        DEVSMS_FROM    — jo‘natuvchi ID (default 4546)
+        DEVSMS_API_URL — ixtiyoriy (default https://devsms.uz/api/send_sms.php)
+        DEVSMS_CALLBACK_URL — ixtiyoriy holat callback
+    """
+
+    def __init__(self):
+        self.api_url = getattr(
+            settings,
+            "DEVSMS_API_URL",
+            "https://devsms.uz/api/send_sms.php",
+        )
+        self.token = (getattr(settings, "DEVSMS_TOKEN", "") or "").strip()
+        self.sender = getattr(settings, "DEVSMS_FROM", "4546") or "4546"
+        self.callback_url = (getattr(settings, "DEVSMS_CALLBACK_URL", "") or "").strip()
+
+    def send(self, phone: str, message: str) -> None:
+        import requests
+
+        if not self.token:
+            raise RuntimeError("DEVSMS_TOKEN is not configured.")
+
+        payload: dict[str, Any] = {
+            "phone": _digits_phone(phone),
+            "message": message,
+            "from": self.sender,
+        }
+        if self.callback_url:
+            payload["callback_url"] = self.callback_url
+
+        try:
+            resp = requests.post(
+                self.api_url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as exc:
+            logger.exception("devsms.uz SMS request failed: %s", exc)
+            raise RuntimeError("SMS yuborib bo‘lmadi. Keyinroq qayta urinib ko‘ring.") from exc
+        except ValueError as exc:
+            logger.exception("devsms.uz invalid JSON response")
+            raise RuntimeError("SMS provayderidan noto‘g‘ri javob keldi.") from exc
+
+        if not data.get("success"):
+            err_msg = data.get("message") or data.get("error") or "SMS yuborilmadi"
+            logger.error("devsms.uz SMS rejected: %s payload=%s", err_msg, payload.get("phone"))
+            raise RuntimeError(str(err_msg))
+
+        logger.info(
+            "devsms.uz SMS sent phone=%s sms_id=%s status=%s",
+            payload.get("phone"),
+            (data.get("data") or {}).get("sms_id"),
+            (data.get("data") or {}).get("status"),
+        )
 
 
 class EskizSmsBackend(SmsBackend):
@@ -151,4 +224,9 @@ def get_sms_backend() -> SmsBackend:
 
 def send_sms(phone: str, message: str) -> None:
     """Convenience wrapper used by the OTP service."""
-    get_sms_backend().send(phone, message)
+    from rest_framework import serializers
+
+    try:
+        get_sms_backend().send(phone, message)
+    except RuntimeError as exc:
+        raise serializers.ValidationError({"detail": str(exc)}) from exc
