@@ -62,6 +62,18 @@ export const providerService = {
       api.get(`/provider/organizations/${id}/staff-roles/`, cfg).then((r) => r.data),
     inviteStaff: (id, payload) =>
       api.post(`/provider/organizations/${id}/invite-staff/`, payload, cfg).then((r) => r.data),
+    setMemberRole: (id, payload) =>
+      api
+        .post(`/provider/organizations/${id}/members/set-role/`, payload, cfg)
+        .then((r) => r.data),
+    removeMember: (id, membershipId) =>
+      api
+        .post(
+          `/provider/organizations/${id}/members/remove/`,
+          { membership_id: membershipId },
+          cfg,
+        )
+        .then((r) => r.data),
   },
 }
 

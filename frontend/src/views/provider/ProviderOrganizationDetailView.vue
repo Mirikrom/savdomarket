@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { useApiNotify } from '../../composables/useApiNotify'
 import providerService from '../../services/provider.service'
 
 const route = useRoute()
 const router = useRouter()
+const { showApiError } = useApiNotify()
 
 const org = ref(null)
 const loading = ref(true)
@@ -39,11 +41,42 @@ function remainingDays(endsAt) {
   return diff
 }
 
+const staffRoles = ref([])
+const roleDraft = ref({})
+const roleSavingId = ref(null)
+const memberRemovingId = ref(null)
+
+function rolesForMember(member) {
+  const list = [...staffRoles.value]
+  if (member.role_code === 'owner' && !list.some((r) => r.code === 'owner')) {
+    list.unshift({
+      id: member.role_id,
+      code: 'owner',
+      name: member.role_name || 'Egasi (Owner)',
+    })
+  }
+  return list
+}
+
+function syncRoleDrafts() {
+  const next = {}
+  for (const m of org.value?.members || []) {
+    next[m.id] = m.role_id
+  }
+  roleDraft.value = next
+}
+
+async function loadStaffRoles() {
+  staffRoles.value = await providerService.orgs.staffRoles(orgId.value)
+}
+
 async function load() {
   loading.value = true
   error.value = null
   try {
     org.value = await providerService.orgs.retrieve(orgId.value)
+    await loadStaffRoles()
+    syncRoleDrafts()
   } catch (err) {
     error.value = err.response?.data?.detail || err.message
   } finally {
@@ -53,6 +86,55 @@ async function load() {
 
 onMounted(load)
 
+async function saveMemberRole(member) {
+  const roleId = roleDraft.value[member.id]
+  if (!roleId || Number(roleId) === Number(member.role_id)) return
+  roleSavingId.value = member.id
+  try {
+    await providerService.orgs.setMemberRole(orgId.value, {
+      membership_id: member.id,
+      role_id: Number(roleId),
+      branch_id: member.branch ?? null,
+    })
+    await load()
+  } catch (err) {
+    showApiError(err)
+    roleDraft.value[member.id] = member.role_id
+  } finally {
+    roleSavingId.value = null
+  }
+}
+
+async function removeMember(member) {
+  const label = member.user_full_name || member.user_phone || 'xodim'
+  if (!confirm(`"${label}" ni tashkilotdan chiqarilsinmi?`)) return
+  memberRemovingId.value = member.id
+  try {
+    await providerService.orgs.removeMember(orgId.value, member.id)
+    await load()
+  } catch (err) {
+    showApiError(err)
+  } finally {
+    memberRemovingId.value = null
+  }
+}
+
+async function deleteOrg() {
+  if (!org.value) return
+  if (
+    !confirm(
+      `"${org.value.name}" mijozini butunlay o‘chirishni tasdiqlaysizmi? Bu amalni qaytarib bo‘lmaydi.`,
+    )
+  )
+    return
+  try {
+    await providerService.orgs.delete(org.value.id)
+    router.push({ name: 'provider-mijozlar' })
+  } catch (err) {
+    showApiError(err)
+  }
+}
+
 async function toggleActive() {
   if (!org.value) return
   const action = org.value.is_active ? 'suspend' : 'activate'
@@ -61,7 +143,7 @@ async function toggleActive() {
     await providerService.orgs[action](org.value.id)
     org.value.is_active = !org.value.is_active
   } catch (err) {
-    alert(err.response?.data?.detail || err.message)
+    showApiError(err)
   }
 }
 
@@ -71,7 +153,7 @@ async function submitExtend() {
     extendModal.value = false
     await load()
   } catch (err) {
-    alert(err.response?.data?.detail || err.message)
+    showApiError(err)
   }
 }
 
@@ -85,7 +167,7 @@ async function submitChangePlan() {
     planModal.value = false
     await load()
   } catch (err) {
-    alert(err.response?.data?.detail || err.message)
+    showApiError(err)
   }
 }
 
@@ -99,7 +181,7 @@ async function impersonate() {
     localStorage.removeItem('is_provider')
     window.location.replace(new URL('/app', window.location.href).href)
   } catch (err) {
-    alert(err.response?.data?.detail || err.message)
+    showApiError(err)
   }
 }
 
@@ -108,7 +190,6 @@ const inviteSubmitting = ref(false)
 const inviteError = ref(null)
 const inviteFieldErrors = ref({})
 const inviteResult = ref(null)
-const staffRoles = ref([])
 const inviteForm = ref({
   phone: '',
   full_name: '',
@@ -131,9 +212,9 @@ async function openInviteModal() {
     password_confirm: '',
   }
   try {
-    staffRoles.value = await providerService.orgs.staffRoles(orgId.value)
+    if (!staffRoles.value.length) await loadStaffRoles()
   } catch (err) {
-    alert(err.response?.data?.detail || err.message)
+    showApiError(err)
     return
   }
   inviteModal.value = true
@@ -205,8 +286,8 @@ function dismissInviteBanner() {
 
 <template>
   <div class="prov-page">
-    <button class="prov-link-back" @click="router.push('/provider/orgs')">
-      &larr; Ro'yxatga qaytish
+    <button class="prov-link-back" @click="router.push({ name: 'provider-mijozlar' })">
+      &larr; Mijozlar ro‘yxatiga
     </button>
 
     <div v-if="loading" class="prov-empty">Yuklanmoqda...</div>
@@ -235,6 +316,9 @@ function dismissInviteBanner() {
           </button>
           <button class="prov-btn prov-btn--ghost" @click="impersonate">
             Owner sifatida kirish
+          </button>
+          <button class="prov-btn prov-btn--ghost is-danger-text" type="button" @click="deleteOrg">
+            Mijozni o‘chirish
           </button>
         </div>
       </header>
@@ -335,7 +419,7 @@ function dismissInviteBanner() {
           <button type="button" class="prov-btn prov-btn--sm" @click="openInviteModal">Xodim qo‘shish</button>
         </div>
         <p class="prov-section__hint">
-          Kassir, sotuvchi yoki boshqa rol — telefon login, parolni o‘zingiz belgilaysiz.
+          Rolni o‘zgartiring (admin, kassir, sotuvchi va boshqalar) yoki xodimni tashkilotdan chiqaring.
         </p>
         <div class="prov-table-wrap">
           <table class="prov-table">
@@ -346,22 +430,52 @@ function dismissInviteBanner() {
                 <th>Rol</th>
                 <th>Holat</th>
                 <th>Qo'shilgan</th>
+                <th class="prov-table__th-actions">Amallar</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="!org.members?.length">
-                <td colspan="5" class="prov-table__empty">Xodimlar topilmadi</td>
+                <td colspan="6" class="prov-table__empty">Xodimlar topilmadi</td>
               </tr>
               <tr v-for="m in org.members" :key="m.id">
-                <td>{{ m.user_full_name || '—' }}</td>
+                <td>
+                  <span class="prov-cell-strong">{{ m.user_full_name || '—' }}</span>
+                  <span v-if="m.role_code === 'owner'" class="prov-member-tag">Do‘kon egasi</span>
+                </td>
                 <td>{{ m.user_phone || '—' }}</td>
-                <td><span class="prov-pill">{{ m.role_name || m.role_code }}</span></td>
+                <td>
+                  <select v-model="roleDraft[m.id]" class="prov-input prov-input--inline">
+                    <option v-for="r in rolesForMember(m)" :key="r.id" :value="r.id">
+                      {{ r.name }} ({{ r.code }})
+                    </option>
+                  </select>
+                </td>
                 <td>
                   <span class="prov-badge" :class="m.is_active ? 'prov-badge--ok' : 'prov-badge--danger'">
                     {{ m.status }}
                   </span>
                 </td>
                 <td>{{ fmtDate(m.created_at) }}</td>
+                <td class="prov-table__td-actions">
+                  <div class="prov-member-actions">
+                    <button
+                      type="button"
+                      class="prov-btn prov-btn--sm"
+                      :disabled="roleSavingId === m.id || Number(roleDraft[m.id]) === Number(m.role_id)"
+                      @click="saveMemberRole(m)"
+                    >
+                      {{ roleSavingId === m.id ? '...' : 'Saqlash' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="prov-btn prov-btn--sm prov-btn--ghost is-danger-text"
+                      :disabled="memberRemovingId === m.id"
+                      @click="removeMember(m)"
+                    >
+                      Chiqarish
+                    </button>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -718,4 +832,44 @@ function dismissInviteBanner() {
   font-size: 14px;
 }
 .prov-modal__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+.is-danger-text {
+  color: #f87171 !important;
+}
+.is-danger-text:hover {
+  color: #fecaca !important;
+  background: rgba(239, 68, 68, 0.1) !important;
+}
+
+.prov-cell-strong {
+  display: block;
+  font-weight: 600;
+  color: #fff;
+}
+.prov-member-tag {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.prov-input--inline {
+  min-width: 160px;
+  max-width: 220px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.prov-table__th-actions {
+  width: 140px;
+  text-align: right;
+}
+.prov-table__td-actions {
+  text-align: right;
+  vertical-align: middle;
+}
+.prov-member-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
 </style>

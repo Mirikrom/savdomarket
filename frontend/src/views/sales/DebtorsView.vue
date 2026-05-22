@@ -10,12 +10,14 @@ import { isOfflineMode } from '../../offline/connectivity'
 import { createOfflineDebtor, loadDebtorsMerged } from '../../offline/offlineDebtors'
 import { debtors as debtorsApi } from '../../services/debtors.service'
 import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
+import { useApiNotify } from '../../composables/useApiNotify'
 import { numberLocaleForUi, useI18n } from '../../i18n'
 import { useOrganizationStore } from '../../stores/organization'
 
 const route = useRoute()
 const org = useOrganizationStore()
 const { tr, locale } = useI18n()
+const { showApiError } = useApiNotify()
 
 const isPosMode = computed(() => {
   const q = route.query[POS_SHELL_QUERY_KEY]
@@ -229,7 +231,7 @@ async function removeDebtor(row) {
     await debtorsApi.remove(row.id)
     rows.value = rows.value.filter((r) => r.id !== row.id)
   } catch (error) {
-    alert(error?.response?.data?.detail || tr('page.debtors.deleteFail'))
+    showApiError(error, 'page.debtors.deleteFail')
   }
 }
 

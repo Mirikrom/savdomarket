@@ -6,12 +6,14 @@ import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { organizationUsers, roles } from '../../services/users.service'
 import { useI18n } from '../../i18n'
+import { useApiNotify } from '../../composables/useApiNotify'
 import { useAuthStore } from '../../stores/auth'
 import { useOrganizationStore } from '../../stores/organization'
 
 const auth = useAuthStore()
 const org = useOrganizationStore()
 const { tr } = useI18n()
+const { showApiError, showMessage } = useApiNotify()
 
 const rows = ref([])
 const rolesList = ref([])
@@ -38,11 +40,11 @@ const editForm = reactive({
 })
 
 const ROLE_LABELS = {
-  owner: 'Egasi',
-  admin: 'Administrator',
-  moderator: 'Moderator',
-  cashier: 'Kassir',
+  owner: 'Egasi (do‘kon)',
   seller: 'Sotuvchi',
+  admin: 'Administrator (eskicha)',
+  moderator: 'Moderator (eskicha)',
+  cashier: 'Kassir (eskicha)',
 }
 
 const STATUS_LABELS = {
@@ -51,11 +53,9 @@ const STATUS_LABELS = {
   suspended: 'To‘xtatilgan',
 }
 
-// Hide system "owner" role from the picker — there can be only one and it's
-// the registering user. Other roles (admin/moderator/cashier/seller) are
-// available for hiring employees.
+// Faqat sotuvchi qo‘shiladi; egasi bitta (ro‘yxatdan o‘tgan).
 const assignableRoles = computed(() =>
-  rolesList.value.filter((r) => r.code !== 'owner'),
+  rolesList.value.filter((r) => r.code === 'seller'),
 )
 
 const columns = [
@@ -106,7 +106,7 @@ function openInvite() {
   inviteForm.phone = ''
   inviteForm.full_name = ''
   inviteForm.role_id =
-    assignableRoles.value.find((r) => r.code === 'cashier')?.id || assignableRoles.value[0]?.id || ''
+    assignableRoles.value.find((r) => r.code === 'seller')?.id || assignableRoles.value[0]?.id || ''
   inviteForm.branch_id = org.currentBranchId || ''
   inviteOpen.value = true
 }
@@ -177,7 +177,7 @@ async function submitEdit() {
 
 async function remove(row) {
   if (row.user_detail?.phone === auth.user?.phone) {
-    alert('O‘zingizni o‘chira olmaysiz.')
+    showMessage(tr('page.users.cannotRemoveSelf'))
     return
   }
   if (!confirm(`"${row.user_detail?.full_name}" tashkilotdan chiqarilsinmi?`)) return
@@ -185,7 +185,7 @@ async function remove(row) {
     await organizationUsers.remove(row.id)
     await fetchData()
   } catch (error) {
-    alert(error?.response?.data?.detail || 'O‘chirib bo‘lmadi.')
+    showApiError(error, 'page.users.removeFail')
   }
 }
 

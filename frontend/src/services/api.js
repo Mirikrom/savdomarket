@@ -1,6 +1,7 @@
 import axios from 'axios'
 
 import { markApiUnreachable } from '../offline/connectivity'
+import { isSubscriptionFeatureError } from '../utils/apiErrors'
 
 // Default: relative `/api/v1` — Vite dev server proxy orqali backend'ga uzatadi
 // (vite.config.js'dagi server.proxy ga qarang). Production'da odatda nginx
@@ -70,6 +71,13 @@ api.interceptors.response.use(
     if (!error.response || status === 502 || status === 503 || status === 504) {
       markApiUnreachable()
     }
+
+    if (!error.config?.skipGlobalErrorHandler && isSubscriptionFeatureError(error)) {
+      const { useNotifyStore } = await import('../stores/notify')
+      useNotifyStore().showApiError(error)
+      error._notifyHandled = true
+    }
+
     const original = error.config
 
     if (status !== 401 || original?._retried || original?.url?.includes('/auth/token/refresh/')) {

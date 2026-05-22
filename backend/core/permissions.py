@@ -29,7 +29,7 @@ class RolePermissionRequired(BasePermission):
         membership = getattr(request, "membership", None) or get_membership(request)
         if not membership:
             return False
-        if membership.role.code in ("owner", "admin"):
+        if membership.role.code == "owner":
             return True
         return RolePermission.objects.filter(
             role=membership.role, permission_code=required
@@ -53,7 +53,7 @@ class CatalogReadOrManagePermission(BasePermission):
         membership = getattr(request, "membership", None) or get_membership(request)
         if not membership:
             return False
-        if membership.role.code in ("owner", "admin"):
+        if membership.role.code == "owner":
             return True
         codes = _role_permission_codes(membership)
         if request.method in SAFE_METHODS:
@@ -70,7 +70,7 @@ class ProductReadOrManagePermission(BasePermission):
         membership = getattr(request, "membership", None) or get_membership(request)
         if not membership:
             return False
-        if membership.role.code in ("owner", "admin"):
+        if membership.role.code == "owner":
             return True
         codes = _role_permission_codes(membership)
         if request.method in SAFE_METHODS:
@@ -87,7 +87,7 @@ class StockMovementScopePermission(BasePermission):
         membership = getattr(request, "membership", None) or get_membership(request)
         if not membership:
             return False
-        if membership.role.code in ("owner", "admin"):
+        if membership.role.code == "owner":
             return True
         codes = _role_permission_codes(membership)
         if getattr(view, "action", None) == "bulk_in":

@@ -3,9 +3,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
+import { useApiNotify } from '../../composables/useApiNotify'
 import providerService from '../../services/provider.service'
 
 const router = useRouter()
+const { showApiError } = useApiNotify()
 
 const items = ref([])
 const loading = ref(false)
@@ -70,6 +72,21 @@ onMounted(load)
 
 function openDetail(org) {
   router.push({ name: 'provider-org-detail', params: { id: String(org.id) } })
+}
+
+async function deleteOrg(org) {
+  if (
+    !confirm(
+      `"${org.name}" mijozini o‘chirishni tasdiqlaysizmi? Do‘kon va barcha ma’lumotlar ro‘yxatdan yashirinadi.`,
+    )
+  )
+    return
+  try {
+    await providerService.orgs.delete(org.id)
+    await load()
+  } catch (err) {
+    showApiError(err)
+  }
 }
 
 function resetBootstrapForm() {
@@ -206,14 +223,15 @@ async function submitBootstrap() {
             <th>Xodimlar</th>
             <th>Tarif</th>
             <th>Holat</th>
+            <th class="prov-table__th-actions">Amallar</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td colspan="7" class="prov-table__empty">Yuklanmoqda...</td>
+            <td colspan="8" class="prov-table__empty">Yuklanmoqda...</td>
           </tr>
           <tr v-else-if="!filtered.length">
-            <td colspan="7" class="prov-table__empty">Mijoz topilmadi</td>
+            <td colspan="8" class="prov-table__empty">Mijoz topilmadi</td>
           </tr>
           <tr
             v-for="org in filtered"
@@ -240,6 +258,44 @@ async function submitBootstrap() {
               <span class="prov-badge" :class="org.is_active ? 'prov-badge--ok' : 'prov-badge--danger'">
                 {{ org.is_active ? 'Faol' : 'Bloklangan' }}
               </span>
+            </td>
+            <td class="prov-table__td-actions" @click.stop>
+              <div class="prov-actions" role="group" aria-label="Mijoz amallari">
+                <button
+                  class="prov-btn-icon"
+                  type="button"
+                  title="Batafsil"
+                  @click="openDetail(org)"
+                >
+                  <svg class="prov-btn-icon__svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                    />
+                    <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" />
+                  </svg>
+                </button>
+                <button
+                  class="prov-btn-icon is-danger"
+                  type="button"
+                  title="Mijozni o‘chirish"
+                  @click="deleteOrg(org)"
+                >
+                  <svg class="prov-btn-icon__svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"
+                    />
+                  </svg>
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -570,6 +626,49 @@ async function submitBootstrap() {
 .prov-field-error {
   font-size: 12px;
   color: #f87171;
+}
+
+.prov-table__th-actions {
+  width: 100px;
+  text-align: right;
+}
+.prov-table__td-actions {
+  text-align: right;
+  vertical-align: middle;
+}
+.prov-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.prov-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  cursor: pointer;
+}
+.prov-btn-icon__svg {
+  width: 18px;
+  height: 18px;
+}
+.prov-btn-icon:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.prov-btn-icon.is-danger {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.prov-btn-icon.is-danger:hover {
+  background: rgba(239, 68, 68, 0.12);
 }
 
 @media (max-width: 900px) {

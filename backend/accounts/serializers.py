@@ -540,6 +540,15 @@ class InviteUserSerializer(serializers.Serializer):
         if not role:
             raise serializers.ValidationError({"role_id": "Rol topilmadi."})
 
+        from accounts.role_policy import is_staff_assignable_role
+
+        if not is_staff_assignable_role(role.code):
+            raise serializers.ValidationError(
+                {
+                    "role_id": "Faqat «Sotuvchi» rolini tayinlash mumkin. Platforma admini — alohida superuser."
+                }
+            )
+
         branch = None
         if branch_id:
             branch = Branch.objects.filter(id=branch_id, organization=organization).first()

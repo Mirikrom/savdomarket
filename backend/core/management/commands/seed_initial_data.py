@@ -4,54 +4,14 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import OrganizationUser, Role, RolePermission, User
+from accounts.role_policy import LEGACY_ROLE_CODES, OWNER_PERMISSIONS, SELLER_PERMISSIONS
 from shops.models import Branch, Organization
 from subscriptions.models import Plan, Subscription
 
 
 DEFAULT_PERMISSIONS = {
-    "owner": [
-        "users.manage",
-        "roles.manage",
-        "organization_users.manage",
-        "branches.manage",
-        "subscriptions.manage",
-        "subscriptions.view_invoices",
-        "catalog.manage",
-        "products.manage",
-        "inventory.manage",
-        "sales.manage",
-        "sales.view",
-    ],
-    "admin": [
-        "users.manage",
-        "organization_users.manage",
-        "branches.manage",
-        "catalog.manage",
-        "products.manage",
-        "inventory.manage",
-        "sales.manage",
-        "sales.view",
-    ],
-    "moderator": [
-        "catalog.manage",
-        "products.manage",
-        "inventory.manage",
-        "sales.view",
-    ],
-    "cashier": [
-        "sales.manage",
-        "sales.view",
-        "inventory.receive",
-        "products.view",
-        "catalog.view",
-    ],
-    "seller": [
-        "sales.manage",
-        "sales.view",
-        "inventory.receive",
-        "products.view",
-        "catalog.view",
-    ],
+    "owner": list(OWNER_PERMISSIONS),
+    "seller": list(SELLER_PERMISSIONS),
 }
 
 
@@ -60,8 +20,8 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--username", default="admin")
-        parser.add_argument("--phone", default="+998900000001")
-        parser.add_argument("--password", default="Admin12345!")
+        parser.add_argument("--phone", default="+998900000000")
+        parser.add_argument("--password", default="0102030405aA")
         parser.add_argument("--full-name", default="SavdoPro Owner")
         parser.add_argument("--org-name", default="SavdoPro Demo")
         parser.add_argument("--org-slug", default="savdopro-demo")
@@ -117,11 +77,12 @@ class Command(BaseCommand):
     def _seed_system_roles(self):
         owner_role = None
         for code, permission_codes in DEFAULT_PERMISSIONS.items():
+            display = {"owner": "Egasi (Owner)", "seller": "Sotuvchi"}.get(code, code.capitalize())
             role, _ = Role.objects.update_or_create(
                 organization=None,
                 code=code,
                 defaults={
-                    "name": code.capitalize(),
+                    "name": display,
                     "description": f"Default {code} role",
                     "is_system": True,
                     "is_active": True,
@@ -129,6 +90,7 @@ class Command(BaseCommand):
             )
             if code == "owner":
                 owner_role = role
+            role.permissions.exclude(permission_code__in=permission_codes).delete()
             existing_codes = set(role.permissions.values_list("permission_code", flat=True))
             to_create = [
                 RolePermission(role=role, permission_code=perm)
@@ -137,6 +99,13 @@ class Command(BaseCommand):
             ]
             if to_create:
                 RolePermission.objects.bulk_create(to_create)
+
+        for legacy in LEGACY_ROLE_CODES:
+            Role.objects.filter(organization=None, code=legacy, is_system=True).update(
+                is_active=False,
+                deleted_at=timezone.now(),
+            )
+
         self.stdout.write(self.style.SUCCESS("Default roles and permissions are ready."))
         return owner_role
 

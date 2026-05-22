@@ -83,10 +83,17 @@ const navGroups = computed(() => [
   },
 ])
 
-const CASHIER_ALLOWED_PATHS = ['/app/pos', '/app/sales', '/app/products', '/app/debtors']
+const SELLER_ALLOWED_PATHS = [
+  '/app/pos',
+  '/app/sales',
+  '/app/products',
+  '/app/categories',
+  '/app/debtors',
+  '/app/inventory/receipt',
+]
 
-function isCashierAllowed(path) {
-  return CASHIER_ALLOWED_PATHS.some((p) => path === p || path.startsWith(p + '/'))
+function isSellerAllowed(path) {
+  return SELLER_ALLOWED_PATHS.some((p) => path === p || path.startsWith(p + '/'))
 }
 
 onMounted(async () => {
@@ -97,7 +104,7 @@ onMounted(async () => {
       router.push('/auth/login')
       return
     }
-    if (auth.isCashier && !isCashierAllowed(router.currentRoute.value.path)) {
+    if (auth.isSeller && !isSellerAllowed(router.currentRoute.value.path)) {
       router.replace('/app/pos')
     }
   } catch {

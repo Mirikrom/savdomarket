@@ -5,11 +5,13 @@ import AppModal from '../../components/AppModal.vue'
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { branches } from '../../services/shops.service'
+import { useApiNotify } from '../../composables/useApiNotify'
 import { useI18n } from '../../i18n'
 import { useOrganizationStore } from '../../stores/organization'
 
 const org = useOrganizationStore()
 const { tr } = useI18n()
+const { showApiError } = useApiNotify()
 
 const rows = ref([])
 const loading = ref(true)
@@ -83,7 +85,7 @@ async function remove(row) {
     await branches.remove(row.id)
     await fetchData()
   } catch (error) {
-    alert(error?.response?.data?.detail || tr('page.branches.deleteFail'))
+    showApiError(error, 'page.branches.deleteFail')
   }
 }
 

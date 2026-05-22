@@ -254,8 +254,7 @@ class RoleViewSet(viewsets.ModelViewSet):
 
     Returns:
     - System-wide template roles (``organization IS NULL`` and ``is_system=True``)
-      that ship with every fresh SavdoPro install (owner, admin, moderator,
-      cashier, seller).
+      that ship with every fresh SavdoPro install (owner, seller).
     - Plus any custom roles the organization itself has created.
     """
 
@@ -267,9 +266,16 @@ class RoleViewSet(viewsets.ModelViewSet):
         membership = get_membership(self.request)
         if not membership:
             return Role.objects.none()
+        from accounts.role_policy import ACTIVE_SYSTEM_ROLE_CODES
+
         return self.queryset.filter(
             Q(organization=membership.organization)
-            | Q(organization__isnull=True, is_system=True)
+            | Q(
+                organization__isnull=True,
+                is_system=True,
+                code__in=ACTIVE_SYSTEM_ROLE_CODES,
+                is_active=True,
+            )
         )
 
     def perform_create(self, serializer):

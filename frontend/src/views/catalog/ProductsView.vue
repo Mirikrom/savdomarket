@@ -35,22 +35,25 @@ import {
   syncOfflineMutations,
 } from '../../offline/offlineMutations'
 import { scheduleFullSync } from '../../offline/syncScheduler'
+import { useApiNotify } from '../../composables/useApiNotify'
 import { categories, products } from '../../services/catalog.service'
 import { stockLevels } from '../../services/inventory.service'
 import { collatorLocaleForUi, numberLocaleForUi, useI18n } from '../../i18n'
 import { useAuthStore } from '../../stores/auth'
 import { useOrganizationStore } from '../../stores/organization'
+import { resolveApiError } from '../../utils/apiErrors'
 
 const route = useRoute()
 const auth = useAuthStore()
 const { tr, locale, branchLabel } = useI18n()
+const { showApiError, showMessage } = useApiNotify()
 const org = useOrganizationStore()
 
 /** Kassa (POS) mahsulotlar: tan narxi ko‘rinmasin; PATCH da ham yuborilmaydi. */
 const hideCostInPos = computed(() => {
   const q = route.query[POS_SHELL_QUERY_KEY]
   if (q === POS_SHELL_QUERY_VALUE || q === 'true') return true
-  return auth.isCashier
+  return auth.isSeller
 })
 
 const rows = ref([])
@@ -447,11 +450,9 @@ async function quickCreateCategory() {
     showQuickCategory.value = false
   } catch (error) {
     const data = error?.response?.data
-    const msg =
-      data?.detail ||
-      (typeof data === 'object' ? Object.values(data || {})?.flat()?.[0] : '') ||
-      'Kategoriya yaratilmadi.'
-    categoryQuickError.value = typeof msg === 'string' ? msg : JSON.stringify(data)
+    categoryQuickError.value = error?._notifyHandled
+      ? ''
+      : resolveApiError(error, tr, tr('page.products.categoryCreateFail'))
   } finally {
     categorySaving.value = false
   }
@@ -591,14 +592,9 @@ async function submit() {
     modalOpen.value = false
     await fetchData()
   } catch (error) {
-    const data = error?.response?.data
-    let msg = data?.detail
-    if (!msg && data && typeof data === 'object') {
-      const flat = Object.values(data).flat()
-      const first = flat.find((x) => typeof x === 'string') || flat.find((x) => Array.isArray(x))?.[0]
-      msg = typeof first === 'string' ? first : null
-    }
-    apiError.value = msg || 'Saqlashda xatolik.'
+    apiError.value = error?._notifyHandled
+      ? ''
+      : resolveApiError(error, tr, tr('page.products.saveError'))
   } finally {
     saving.value = false
   }
@@ -606,7 +602,7 @@ async function submit() {
 
 async function remove(row) {
   if (isOfflineMode()) {
-    alert('Offline: mahsulotni o‘chirish server yoqilganda mumkin.')
+    showMessage(tr('page.products.deleteOfflineOnly'))
     return
   }
   if (!confirm(`"${row.name}" mahsuloti o‘chirilsinmi?`)) return
@@ -621,7 +617,7 @@ async function remove(row) {
     }
     await fetchData()
   } catch (error) {
-    alert(error?.response?.data?.detail || 'O‘chirib bo‘lmadi.')
+    showApiError(error, 'page.products.deleteFail')
   }
 }
 

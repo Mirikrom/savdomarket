@@ -18,9 +18,12 @@ export const useAuthStore = defineStore('auth', {
     isSuperuser: (state) => !!state.user?.is_superuser,
     isProviderAdmin: (state) => !!state.user?.is_superuser,
     isOwner: (state) => state.role === 'owner',
-    isAdmin: (state) => state.role === 'admin' || state.role === 'owner',
-    isCashier: (state) => state.role === 'cashier' || state.role === 'seller',
-    isModerator: (state) => state.role === 'moderator',
+    /** Do‘kon egasi — to‘liq admin panel */
+    isAdmin: (state) => state.role === 'owner',
+    /** Sotuvchi — kassa, mahsulot, kirim */
+    isSeller: (state) => state.role === 'seller',
+    /** @deprecated isSeller ishlating */
+    isCashier: (state) => state.role === 'seller',
     fullName: (state) => state.user?.full_name || state.user?.phone || '',
     initials: (state) => {
       const name = state.user?.full_name || state.user?.phone || ''

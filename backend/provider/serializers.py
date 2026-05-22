@@ -125,6 +125,7 @@ class BranchLiteSerializer(serializers.ModelSerializer):
 class MembershipLiteSerializer(serializers.ModelSerializer):
     user_phone = serializers.CharField(source="user.phone", read_only=True)
     user_full_name = serializers.CharField(source="user.full_name", read_only=True)
+    role_id = serializers.IntegerField(source="role.id", read_only=True)
     role_code = serializers.CharField(source="role.code", read_only=True)
     role_name = serializers.CharField(source="role.name", read_only=True)
 
@@ -134,6 +135,7 @@ class MembershipLiteSerializer(serializers.ModelSerializer):
             "id",
             "user_phone",
             "user_full_name",
+            "role_id",
             "role_code",
             "role_name",
             "branch",
@@ -141,6 +143,16 @@ class MembershipLiteSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
         ]
+
+
+class ProviderMemberRoleSerializer(serializers.Serializer):
+    membership_id = serializers.IntegerField()
+    role_id = serializers.IntegerField()
+    branch_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class ProviderMemberRemoveSerializer(serializers.Serializer):
+    membership_id = serializers.IntegerField()
 
 
 class OrganizationDetailSerializer(OrganizationListSerializer):
@@ -160,7 +172,11 @@ class OrganizationDetailSerializer(OrganizationListSerializer):
         ]
 
     def get_members(self, obj):
-        members = obj.members.select_related("user", "role", "branch").all()
+        members = (
+            obj.members.filter(deleted_at__isnull=True)
+            .select_related("user", "role", "branch")
+            .order_by("-role__code", "id")
+        )
         return MembershipLiteSerializer(members, many=True).data
 
     def get_stats(self, obj):

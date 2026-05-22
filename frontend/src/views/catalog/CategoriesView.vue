@@ -6,10 +6,12 @@ import AppModal from '../../components/AppModal.vue'
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { numberLocaleForUi, useI18n } from '../../i18n'
+import { useApiNotify } from '../../composables/useApiNotify'
 import { categories } from '../../services/catalog.service'
 import { useUiStore } from '../../stores/ui'
 
 const { tr } = useI18n()
+const { showApiError } = useApiNotify()
 const { locale } = storeToRefs(useUiStore())
 
 const rows = ref([])
@@ -83,7 +85,7 @@ async function remove(row) {
     await categories.remove(row.id)
     await fetchData()
   } catch (error) {
-    alert(error?.response?.data?.detail || tr('page.categories.deleteFail'))
+    showApiError(error, 'page.categories.deleteFail')
   }
 }
 

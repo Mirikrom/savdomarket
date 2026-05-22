@@ -57,19 +57,20 @@ const routes = [
     meta: { requiresAuth: true },
     children: [
       { path: '', name: 'dashboard', component: DashboardView },
-      { path: 'categories', name: 'categories', component: CategoriesView },
-      { path: 'products', name: 'products', component: ProductsView, meta: { cashierAllowed: true } },
+      { path: 'products', name: 'products', component: ProductsView, meta: { sellerAllowed: true } },
+      { path: 'categories', name: 'categories', component: CategoriesView, meta: { sellerAllowed: true } },
       { path: 'inventory', name: 'inventory', component: InventoryView },
       { path: 'inventory/movements', name: 'inventory-movements', component: StockMovementsView },
       {
         path: 'inventory/receipt',
         name: 'inventory-receipt',
         component: StockReceiptView,
+        meta: { sellerAllowed: true },
       },
       { path: 'inventory/adjust', name: 'inventory-adjust', component: StockAdjustmentView },
-      { path: 'pos', name: 'pos', component: PosView, meta: { cashierAllowed: true } },
-      { path: 'sales', name: 'sales-history', component: SalesHistoryView, meta: { cashierAllowed: true } },
-      { path: 'debtors', name: 'debtors', component: DebtorsView, meta: { cashierAllowed: true } },
+      { path: 'pos', name: 'pos', component: PosView, meta: { sellerAllowed: true } },
+      { path: 'sales', name: 'sales-history', component: SalesHistoryView, meta: { sellerAllowed: true } },
+      { path: 'debtors', name: 'debtors', component: DebtorsView, meta: { sellerAllowed: true } },
       { path: 'users', name: 'users', component: UsersView },
       { path: 'branches', name: 'branches', component: BranchesView },
       { path: 'billing', name: 'billing', component: BillingView },
@@ -132,11 +133,18 @@ router.beforeEach((to) => {
     // return { name: 'provider-dashboard' }
   }
 
-  // Sotuvchi (cashier/seller) faqat ruxsat etilgan sahifalarga kirsin.
+  // Sotuvchi faqat ruxsat etilgan sahifalarga kirsin.
   if (to.path.startsWith('/app/') || to.path === '/app') {
     try {
       const cached = localStorage.getItem('user_role')
-      if ((cached === 'cashier' || cached === 'seller') && !to.meta.cashierAllowed) {
+      if (cached === 'seller' && !to.meta.sellerAllowed) {
+        return { name: 'pos' }
+      }
+      // Eski kassir/moderator akkauntlari migratsiyadan keyin seller bo‘ladi
+      if (
+        (cached === 'cashier' || cached === 'moderator' || cached === 'admin') &&
+        !to.meta.sellerAllowed
+      ) {
         return { name: 'pos' }
       }
     } catch {

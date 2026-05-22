@@ -137,7 +137,7 @@ function resetForm() {
 
 /** Sotuvchi — kassaga; boshqaruvchi — qoldiqlar ro‘yxatiga. */
 function leaveReceipt() {
-  if (auth.isCashier) {
+  if (auth.isSeller) {
     router.push(routeWithPosShell('/app/pos'))
     return
   }
@@ -150,7 +150,7 @@ function leaveReceipt() {
     <PageHeader :title="tr('page.receipt.title')" :subtitle="tr('page.receipt.subtitle')">
       <template #actions>
         <button type="button" class="btn btn--ghost" @click="leaveReceipt">
-          {{ auth.isCashier ? '← Kassa' : '← Qoldiqlarga' }}
+          {{ auth.isSeller ? '← Kassa' : '← Qoldiqlarga' }}
         </button>
       </template>
     </PageHeader>

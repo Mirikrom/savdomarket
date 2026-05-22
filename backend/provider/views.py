@@ -28,8 +28,11 @@ from provider.serializers import (
     ProviderUserListSerializer,
     ProviderBootstrapClientSerializer,
     ProviderChangePasswordSerializer,
+    ProviderMemberRemoveSerializer,
+    ProviderMemberRoleSerializer,
     SetRemainingDaysSerializer,
     SetUserActiveSerializer,
+    MembershipLiteSerializer,
 )
 from shops.models import Branch, Organization
 from subscriptions.models import Plan, Subscription
@@ -505,13 +508,15 @@ class ProviderOrganizationViewSet(viewsets.ModelViewSet):
     def staff_roles(self, request, pk=None):
         """Tashkilot uchun tanlash mumkin bo'lgan rollar (owner chiqarilgan)."""
         org = self.get_object()
+        from accounts.role_policy import STAFF_ROLE_CODE
+
         qs = (
             Role.objects.filter(
                 Q(organization=org) | Q(organization__isnull=True, is_system=True),
                 is_active=True,
+                code=STAFF_ROLE_CODE,
             )
-            .exclude(code=Role.RoleCode.OWNER)
-            .order_by("code", "id")
+            .order_by("id")
         )
         data = [{"id": r.id, "code": r.code, "name": r.name} for r in qs]
         return Response(data)
@@ -524,6 +529,127 @@ class ProviderOrganizationViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         result = serializer.save(organization=org)
         return Response(result, status=status.HTTP_201_CREATED)
+
+    def _resolve_org_role(self, organization, role_id):
+        role = (
+            Role.objects.filter(id=role_id)
+            .filter(Q(organization=organization) | Q(organization__isnull=True, is_system=True))
+            .first()
+        )
+        if not role:
+            return None
+        return role
+
+    @action(detail=True, methods=["post"], url_path="members/set-role")
+    def set_member_role(self, request, pk=None):
+        org = self.get_object()
+        serializer = ProviderMemberRoleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        membership_id = serializer.validated_data["membership_id"]
+        role_id = serializer.validated_data["role_id"]
+        branch_id = serializer.validated_data.get("branch_id")
+
+        membership = (
+            OrganizationUser.objects.filter(
+                organization=org, id=membership_id, deleted_at__isnull=True
+            )
+            .select_related("role", "user")
+            .first()
+        )
+        if not membership:
+            return Response({"detail": "A'zolik topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+
+        role = self._resolve_org_role(org, role_id)
+        if not role:
+            return Response({"detail": "Rol topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from accounts.role_policy import is_valid_member_role_code
+
+        if not is_valid_member_role_code(role.code):
+            return Response(
+                {"detail": "Faqat egasi (owner) yoki sotuvchi (seller) rolini tayinlash mumkin."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if role.code == Role.RoleCode.OWNER:
+            if (
+                OrganizationUser.objects.filter(
+                    organization=org,
+                    role__code=Role.RoleCode.OWNER,
+                    is_active=True,
+                    deleted_at__isnull=True,
+                )
+                .exclude(pk=membership.pk)
+                .exists()
+            ):
+                return Response(
+                    {"detail": "Tashkilotda allaqachon boshqa egasi (owner) bor."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if membership.role.code == Role.RoleCode.OWNER and role.code != Role.RoleCode.OWNER:
+            owners_left = (
+                OrganizationUser.objects.filter(
+                    organization=org,
+                    role__code=Role.RoleCode.OWNER,
+                    is_active=True,
+                    deleted_at__isnull=True,
+                )
+                .exclude(pk=membership.pk)
+                .count()
+            )
+            if owners_left < 1:
+                return Response(
+                    {"detail": "Yagona egasini boshqa rolga o'tkazib bo'lmaydi."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        branch = None
+        if branch_id is not None:
+            branch = Branch.objects.filter(id=branch_id, organization=org, deleted_at__isnull=True).first()
+            if not branch:
+                return Response({"detail": "Filial topilmadi."}, status=status.HTTP_400_BAD_REQUEST)
+
+        membership.role = role
+        membership.branch = branch
+        membership.is_active = True
+        membership.status = OrganizationUser.MembershipStatus.ACTIVE
+        membership.save(update_fields=["role", "branch", "is_active", "status", "updated_at"])
+        return Response(MembershipLiteSerializer(membership).data)
+
+    @action(detail=True, methods=["post"], url_path="members/remove")
+    def remove_member(self, request, pk=None):
+        from uuid import uuid4
+
+        org = self.get_object()
+        serializer = ProviderMemberRemoveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        membership_id = serializer.validated_data["membership_id"]
+
+        membership = OrganizationUser.objects.filter(
+            organization=org, id=membership_id, deleted_at__isnull=True
+        ).first()
+        if not membership:
+            return Response({"detail": "A'zolik topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+
+        if membership.role.code == Role.RoleCode.OWNER:
+            owners_count = OrganizationUser.objects.filter(
+                organization=org,
+                role__code=Role.RoleCode.OWNER,
+                is_active=True,
+                deleted_at__isnull=True,
+            ).count()
+            if owners_count <= 1:
+                return Response(
+                    {"detail": "Yagona egasini o'chirib bo'lmaydi. Avval boshqa egasi qo'sing yoki tashkilotni o'chiring."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        membership.is_active = False
+        membership.status = OrganizationUser.MembershipStatus.SUSPENDED
+        membership.deleted_at = timezone.now()
+        membership.save(update_fields=["is_active", "status", "deleted_at", "updated_at"])
+        return Response({"ok": True, "membership_id": membership.id})
 
 
 class ProviderStatsView(APIView):

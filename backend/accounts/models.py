@@ -60,10 +60,16 @@ class User(AbstractUser, TimeStampedModel):
 
 class Role(TimeStampedModel, SoftDeleteModel):
     class RoleCode(models.TextChoices):
+        """Tashkilotda faqat OWNER va SELLER ishlatiladi.
+
+        ADMIN/MODERATOR/CASHIER — tarixiy yozuvlar (migratsiyada o‘chirilgan).
+        Platforma admini — User.is_superuser, alohida rol emas.
+        """
+
         OWNER = "owner", "Owner"
-        ADMIN = "admin", "Admin"
-        MODERATOR = "moderator", "Moderator"
-        CASHIER = "cashier", "Cashier"
+        ADMIN = "admin", "Admin"  # legacy — faqat DB
+        MODERATOR = "moderator", "Moderator"  # legacy
+        CASHIER = "cashier", "Cashier"  # legacy
         SELLER = "seller", "Seller"
 
     organization = models.ForeignKey(

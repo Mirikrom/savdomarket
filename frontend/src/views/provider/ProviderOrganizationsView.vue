@@ -3,9 +3,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
+import { useApiNotify } from '../../composables/useApiNotify'
 import providerService from '../../services/provider.service'
 
 const router = useRouter()
+const { showApiError } = useApiNotify()
 
 const items = ref([])
 const loading = ref(false)
@@ -175,7 +177,7 @@ async function deleteOrg(org) {
     await providerService.orgs.delete(org.id)
     await load()
   } catch (err) {
-    alert(err.response?.data?.detail || err.message)
+    showApiError(err)
   }
 }
 
@@ -185,7 +187,7 @@ async function quickSuspend(org) {
     await providerService.orgs.suspend(org.id)
     org.is_active = false
   } catch (err) {
-    alert(err.response?.data?.detail || err.message)
+    showApiError(err)
   }
 }
 
@@ -194,7 +196,7 @@ async function quickActivate(org) {
     await providerService.orgs.activate(org.id)
     org.is_active = true
   } catch (err) {
-    alert(err.response?.data?.detail || err.message)
+    showApiError(err)
   }
 }
 
@@ -208,7 +210,7 @@ async function quickExtend(org) {
     org.subscription_ends_at = res.ends_at
     org.subscription_status = res.status
   } catch (err) {
-    alert(err.response?.data?.detail || err.message)
+    showApiError(err)
   }
 }
 </script>

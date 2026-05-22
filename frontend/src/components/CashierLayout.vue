@@ -31,8 +31,14 @@ const allTabs = computed(() => {
     { key: 'sales', to: routeWithPosShell('/app/sales'), label: tr('posShell.tab.sales'), icon: 'receipt' },
     { key: 'products', to: routeWithPosShell('/app/products'), label: tr('posShell.tab.products'), icon: 'box' },
     { key: 'debtors', to: routeWithPosShell('/app/debtors'), label: tr('posShell.tab.debtors'), icon: 'wallet' },
+    {
+      key: 'receipt',
+      to: routeWithPosShell('/app/inventory/receipt'),
+      label: tr('posShell.tab.receipt'),
+      icon: 'receipt',
+    },
   ]
-  if (auth.isAdmin) {
+  if (auth.isOwner) {
     base.push({
       key: 'admin',
       to: { name: 'dashboard' },
@@ -186,14 +192,115 @@ async function logout() {
         </template>
       </nav>
 
-      <button
-        type="button"
-        class="pos-side__user"
-        :aria-expanded="userMenuOpen"
-        @click.stop="userMenuOpen = !userMenuOpen"
-      >
-        <span class="pos-side__avatar">{{ auth.initials || '?' }}</span>
-      </button>
+      <div class="pos-side__user-wrap">
+        <button
+          type="button"
+          class="pos-side__user"
+          :aria-expanded="userMenuOpen"
+          :aria-haspopup="true"
+          @click.stop="userMenuOpen = !userMenuOpen"
+        >
+          <span class="pos-side__avatar">{{ auth.initials || '?' }}</span>
+        </button>
+
+        <div
+          v-if="userMenuOpen"
+          class="pos-user-pop__backdrop"
+          aria-hidden="true"
+          @click="userMenuOpen = false"
+        />
+
+        <Transition name="pos-user-pop">
+          <div v-if="userMenuOpen" class="pos-user-pop">
+            <div class="pos-user-pop__head">
+              <span class="pos-user-pop__avatar">{{ auth.initials || '?' }}</span>
+              <div>
+                <strong>{{ auth.fullName }}</strong>
+                <small>{{ tr('posShell.user.roleLine') }} · {{ branchLabel(org.currentBranch) }}</small>
+              </div>
+            </div>
+            <div v-if="org.branches.length > 1" class="pos-user-pop__branch">
+              <label for="pos-branch-select">{{ tr('posShell.user.branch') }}</label>
+              <select
+                id="pos-branch-select"
+                class="pos-user-pop__select"
+                :value="org.currentBranchId || ''"
+                @change="onBranchChange"
+              >
+                <option v-for="b in org.branches" :key="b.id" :value="b.id">
+                  {{ branchLabel(b) }}
+                </option>
+              </select>
+            </div>
+            <nav class="pos-user-pop__actions">
+              <RouterLink
+                v-if="auth.isProviderAdmin"
+                :to="{ name: 'provider-dashboard' }"
+                class="pos-user-pop__item"
+                @click="userMenuOpen = false"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <rect x="14" y="14" width="7" height="7" rx="1" />
+                </svg>
+                {{ tr('posShell.user.provider') }}
+              </RouterLink>
+              <RouterLink
+                v-if="auth.isOwner"
+                :to="{ name: 'dashboard' }"
+                class="pos-user-pop__item"
+                @click="userMenuOpen = false"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 3h18v4H3z" />
+                  <path d="M5 7v14h14V7" />
+                </svg>
+                {{ tr('posShell.user.admin') }}
+              </RouterLink>
+              <button type="button" class="pos-user-pop__item pos-user-pop__item--danger" @click="logout">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+                {{ tr('posShell.user.logout') }}
+              </button>
+            </nav>
+          </div>
+        </Transition>
+      </div>
     </aside>
 
     <!-- ============ Main ============ -->
@@ -266,65 +373,6 @@ async function logout() {
       </button>
     </nav>
 
-    <!-- ============ User dropdown ============ -->
-    <Transition name="pos-fade">
-      <div v-if="userMenuOpen" class="pos-user-pop" @click.stop>
-        <div class="pos-user-pop__head">
-          <span class="pos-user-pop__avatar">{{ auth.initials || '?' }}</span>
-          <div>
-            <strong>{{ auth.fullName }}</strong>
-            <small>{{ tr('posShell.user.roleLine') }} · {{ branchLabel(org.currentBranch) }}</small>
-          </div>
-        </div>
-        <div v-if="org.branches.length > 1" class="pos-user-pop__branch">
-          <label for="pos-branch-select">{{ tr('posShell.user.branch') }}</label>
-          <select
-            id="pos-branch-select"
-            class="pos-user-pop__select"
-            :value="org.currentBranchId || ''"
-            @change="onBranchChange"
-          >
-            <option v-for="b in org.branches" :key="b.id" :value="b.id">
-              {{ branchLabel(b) }}
-            </option>
-          </select>
-        </div>
-        <button
-          v-if="auth.isAdmin"
-          type="button"
-          class="pos-user-pop__logout"
-          @click="
-            userMenuOpen = false;
-            router.push({ name: 'dashboard' })
-          "
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M3 3h18v4H3z" />
-            <path d="M5 7v14h14V7" />
-          </svg>
-          {{ tr('posShell.user.admin') }}
-        </button>
-        <button type="button" class="pos-user-pop__logout" @click="logout">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-          </svg>
-          {{ tr('posShell.user.logout') }}
-        </button>
-      </div>
-    </Transition>
-
-    <div v-if="userMenuOpen" class="pos-user-pop__backdrop" @click="userMenuOpen = false" />
   </div>
 </template>
 
@@ -367,7 +415,7 @@ async function logout() {
   height: 100vh;
   height: 100dvh;
   max-height: 100dvh;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .pos-side__logo {
@@ -499,6 +547,15 @@ async function logout() {
   transform: translateY(-6px);
 }
 
+.pos-side__user-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+  z-index: 40;
+}
+
 .pos-side__user {
   background: transparent;
   border: 0;
@@ -592,18 +649,21 @@ async function logout() {
   to { transform: rotate(360deg); }
 }
 
-/* ============ User popup ============ */
+/* ============ User popup (profil tugmasidan chiqadi) ============ */
 .pos-user-pop {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  width: 280px;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 8px;
+  width: min(280px, calc(100vw - 24px));
   background: var(--pos-card);
   border: 1px solid var(--pos-line);
   border-radius: 14px;
-  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.12);
-  z-index: 100;
+  box-shadow:
+    0 4px 6px rgba(15, 23, 42, 0.04),
+    0 16px 40px rgba(15, 23, 42, 0.14);
+  z-index: 102;
   overflow: hidden;
+  pointer-events: auto;
 }
 
 .pos-user-pop__head {
@@ -673,41 +733,70 @@ async function logout() {
   color: var(--pos-text);
 }
 
-.pos-user-pop__logout {
+.pos-user-pop__actions {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+}
+
+.pos-user-pop__item {
   width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 16px;
+  padding: 12px 16px;
   background: transparent;
   border: 0;
   font-size: 0.95rem;
   font-weight: 500;
-  color: #b91c1c;
+  color: var(--pos-text);
   cursor: pointer;
   text-align: left;
-  transition: background 0.15s ease;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+  box-sizing: border-box;
 }
 
-.pos-user-pop__logout:hover {
+.pos-user-pop__item:hover {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--pos-accent);
+}
+
+.pos-user-pop__item:focus-visible {
+  outline: 2px solid var(--pos-accent);
+  outline-offset: -2px;
+}
+
+.pos-user-pop__item--danger {
+  color: #b91c1c;
+  border-top: 1px solid var(--pos-line);
+  margin-top: 4px;
+  padding-top: 14px;
+}
+
+.pos-user-pop__item--danger:hover {
   background: rgba(248, 113, 113, 0.12);
+  color: #991b1b;
 }
 
 .pos-user-pop__backdrop {
   position: fixed;
   inset: 0;
-  z-index: 99;
+  z-index: 100;
+  background: transparent;
+  cursor: default;
 }
 
-.pos-fade-enter-active,
-.pos-fade-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+.pos-user-pop-enter-active,
+.pos-user-pop-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  transform-origin: bottom left;
 }
 
-.pos-fade-enter-from,
-.pos-fade-leave-to {
+.pos-user-pop-enter-from,
+.pos-user-pop-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
+  transform: translateY(6px) scale(0.97);
 }
 
 /* ============ Mobile tabbar ============ */
@@ -841,10 +930,16 @@ async function logout() {
     font-weight: 500;
   }
   .pos-user-pop {
-    top: 12px;
-    right: 8px;
-    left: 8px;
+    position: fixed;
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    left: 12px;
+    right: 12px;
     width: auto;
+  }
+
+  .pos-user-pop-enter-active,
+  .pos-user-pop-leave-active {
+    transform-origin: bottom center;
   }
 }
 </style>
