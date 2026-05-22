@@ -59,7 +59,6 @@ export async function syncCatalogToIndexedDB(organizationId, branchId) {
   const activeProducts = filterActiveProducts(pList)
 
   if (activeProducts.length === 0) {
-    console.warn('[offline] API mahsulot qaytarmadi — mavjud kesh o‘chirilmaydi')
     return false
   }
 
