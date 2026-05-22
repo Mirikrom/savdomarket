@@ -64,6 +64,8 @@ export async function registerComplete(payload) {
   persistTokens(data)
   if (data?.organization?.id) {
     localStorage.setItem('organization_id', String(data.organization.id))
+    const { purgeOfflineCatalogOtherOrgs } = await import('../offline/catalogSync')
+    await purgeOfflineCatalogOtherOrgs(data.organization.id)
   }
   if (data?.role) {
     localStorage.setItem('user_role', data.role)

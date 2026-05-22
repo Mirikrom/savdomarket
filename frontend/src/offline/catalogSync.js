@@ -168,6 +168,37 @@ async function loadCategoriesFromMeta(orgId) {
   return rows
 }
 
+/** Boshqa do‘kon (tashkilot) keshini o‘chirish — yangi ro‘yxatdan o‘tishda eski mahsulotlar chiqmasin. */
+export async function purgeOfflineCatalogOtherOrgs(keepOrganizationId) {
+  const keepOrgId = normalizeOrgId(keepOrganizationId)
+  if (!keepOrgId) return
+
+  const [allProducts, allCategories] = await Promise.all([
+    savdoDb.products.toArray(),
+    savdoDb.categories.toArray(),
+  ])
+
+  const productIdsToDrop = allProducts
+    .filter((p) => !productMatchesOrg(p, keepOrgId))
+    .map((p) => p.id)
+  const categoryIdsToDrop = allCategories
+    .filter((c) => Number(c.organizationId) !== keepOrgId)
+    .map((c) => c.id)
+
+  if (productIdsToDrop.length) {
+    await savdoDb.products.bulkDelete(productIdsToDrop)
+  }
+  if (categoryIdsToDrop.length) {
+    await savdoDb.categories.bulkDelete(categoryIdsToDrop)
+  }
+
+  const catalog = await getMeta('catalog_sync')
+  const metaOrg = normalizeOrgId(catalog?.organizationId)
+  if (metaOrg && metaOrg !== keepOrgId) {
+    await savdoDb.meta.delete('catalog_sync')
+  }
+}
+
 export async function loadCatalogFromIndexedDB(organizationId, branchId) {
   const orgId = normalizeOrgId(organizationId)
   const bid = branchId != null ? normalizeOrgId(branchId) : null
@@ -187,18 +218,6 @@ export async function loadCatalogFromIndexedDB(organizationId, branchId) {
 
   const allProducts = await savdoDb.products.toArray()
   let products = filterActiveProducts(allProducts.filter((p) => productMatchesOrg(p, orgId)))
-
-  if (!products.length) {
-    const catalog = await getMeta('catalog_sync')
-    const metaOrg = normalizeOrgId(catalog?.organizationId)
-    if (metaOrg) {
-      products = filterActiveProducts(allProducts.filter((p) => productMatchesOrg(p, metaOrg)))
-    }
-  }
-
-  if (!products.length && allProducts.length) {
-    products = filterActiveProducts(allProducts)
-  }
 
   if (!products.length) {
     products = await loadProductsFromMeta(orgId)

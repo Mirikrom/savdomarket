@@ -41,6 +41,7 @@ export const useAuthStore = defineStore('auth', {
       this.loading = true
       this.error = null
       try {
+        const prevOrgId = localStorage.getItem('organization_id')
         const { data } = await api.get('/accounts/me/')
         this.user = data.user
         this.organizationId = data.organization_id
@@ -48,7 +49,12 @@ export const useAuthStore = defineStore('auth', {
         this.branchId = data.branch_id
         this.memberships = data.memberships || []
         if (this.organizationId) {
-          localStorage.setItem('organization_id', String(this.organizationId))
+          const nextOrg = String(this.organizationId)
+          if (prevOrgId && prevOrgId !== nextOrg) {
+            const { purgeOfflineCatalogOtherOrgs } = await import('../offline/catalogSync')
+            await purgeOfflineCatalogOtherOrgs(this.organizationId)
+          }
+          localStorage.setItem('organization_id', nextOrg)
         } else {
           localStorage.removeItem('organization_id')
         }
