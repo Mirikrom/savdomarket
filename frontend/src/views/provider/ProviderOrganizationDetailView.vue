@@ -123,7 +123,7 @@ async function deleteOrg() {
   if (!org.value) return
   if (
     !confirm(
-      `"${org.value.name}" mijozini butunlay o‘chirishni tasdiqlaysizmi? Bu amalni qaytarib bo‘lmaydi.`,
+      `"${org.value.name}" mijozini butunlay o‘chirishni tasdiqlaysizmi? Do‘kon, savdolar va akkaunt o‘chiriladi. Shu telefon bilan qayta ro‘yxatdan o‘tish mumkin.`,
     )
   )
     return

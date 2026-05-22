@@ -167,24 +167,13 @@ def me(request):
        frontend can bootstrap on a fresh login without already knowing the
        org id.
     """
+    from core.tenant import active_organization_memberships
+
     membership = get_membership(request)
     if not membership:
-        membership = (
-            OrganizationUser.objects.select_related("role", "organization", "branch")
-            .filter(
-                user=request.user,
-                status=OrganizationUser.MembershipStatus.ACTIVE,
-                is_active=True,
-            )
-            .order_by("id")
-            .first()
-        )
+        membership = active_organization_memberships(request.user).order_by("id").first()
 
-    memberships_qs = (
-        OrganizationUser.objects.select_related("role", "organization", "branch")
-        .filter(user=request.user, is_active=True)
-        .order_by("id")
-    )
+    memberships_qs = active_organization_memberships(request.user).order_by("id")
 
     return Response(
         {

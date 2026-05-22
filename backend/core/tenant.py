@@ -1,6 +1,18 @@
 from accounts.models import OrganizationUser
 
 
+def active_organization_memberships(user):
+    """Faqat faol tashkilot va faol a'zoliklar (o'chirilgan do'konlar chiqariladi)."""
+    return OrganizationUser.objects.select_related("role", "organization", "branch").filter(
+        user=user,
+        is_active=True,
+        deleted_at__isnull=True,
+        status=OrganizationUser.MembershipStatus.ACTIVE,
+        organization__deleted_at__isnull=True,
+        organization__is_active=True,
+    )
+
+
 def get_request_organization_id(request):
     # DRF Request has `query_params`; bare WSGIRequest only has `GET`.
     query_params = getattr(request, "query_params", None) or getattr(request, "GET", None) or {}
@@ -14,11 +26,10 @@ def get_request_organization_id(request):
 
 
 def get_membership(request):
-    org_id = get_request_organization_id(request)
-    if not request.user.is_authenticated or not org_id:
+    if not request.user.is_authenticated:
         return None
-    return (
-        OrganizationUser.objects.select_related("role", "organization", "branch")
-        .filter(user=request.user, organization_id=org_id, status="active", is_active=True)
-        .first()
-    )
+    qs = active_organization_memberships(request.user)
+    org_id = get_request_organization_id(request)
+    if org_id:
+        return qs.filter(organization_id=org_id).first()
+    return None

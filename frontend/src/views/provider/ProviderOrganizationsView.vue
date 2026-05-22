@@ -169,7 +169,7 @@ async function submitOrgForm() {
 async function deleteOrg(org) {
   if (
     !confirm(
-      `"${org.name}" tashkilotini o‘chirishni tasdiqlaysizmi? U ro‘yxatdan yo‘qoladi (soft-delete).`,
+      `"${org.name}" mijozini butunlay o‘chirishni tasdiqlaysizmi? Barcha ma’lumotlar va akkaunt o‘chiriladi. Shu telefon bilan qayta ro‘yxatdan o‘tish mumkin.`,
     )
   )
     return
@@ -326,7 +326,7 @@ async function quickExtend(org) {
                 <button
                   class="prov-btn-icon is-danger"
                   type="button"
-                  title="O‘chirish (soft-delete)"
+                  title="Butunlay o‘chirish"
                   @click="deleteOrg(org)"
                 >
                   <svg class="prov-btn-icon__svg" viewBox="0 0 24 24" aria-hidden="true">

@@ -142,11 +142,25 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS("Default subscription is ready."))
 
+    def _unique_username(self, desired: str, exclude_user_id=None) -> str:
+        """username global unique — boshqa userda band bo‘lsa suffix qo‘shiladi."""
+        base = (desired or "admin").strip() or "admin"
+        candidate = base
+        counter = 2
+        qs = User.objects.all()
+        if exclude_user_id:
+            qs = qs.exclude(pk=exclude_user_id)
+        while qs.filter(username=candidate).exists():
+            candidate = f"{base}-{counter}"
+            counter += 1
+        return candidate
+
     def _ensure_superuser(self, username, phone, password, full_name):
+        safe_username = self._unique_username(username)
         user, created = User.objects.get_or_create(
             phone=phone,
             defaults={
-                "username": username,
+                "username": safe_username,
                 "full_name": full_name,
                 "email": "",
                 "is_active": True,
@@ -161,7 +175,7 @@ class Command(BaseCommand):
             user.save(update_fields=["password"])
             self.stdout.write(self.style.SUCCESS(f"Superuser created: {phone}"))
         else:
-            user.username = username
+            user.username = self._unique_username(username, exclude_user_id=user.pk)
             user.full_name = full_name
             user.is_staff = True
             user.is_superuser = True

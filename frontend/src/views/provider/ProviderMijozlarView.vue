@@ -77,7 +77,7 @@ function openDetail(org) {
 async function deleteOrg(org) {
   if (
     !confirm(
-      `"${org.name}" mijozini o‘chirishni tasdiqlaysizmi? Do‘kon va barcha ma’lumotlar ro‘yxatdan yashirinadi.`,
+      `"${org.name}" mijozini butunlay o‘chirishni tasdiqlaysizmi? Do‘kon, mahsulotlar, savdolar va akkaunt o‘chiriladi. Shu telefon bilan qayta ro‘yxatdan o‘tish mumkin.`,
     )
   )
     return

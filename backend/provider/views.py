@@ -336,12 +336,9 @@ class ProviderOrganizationViewSet(viewsets.ModelViewSet):
         _ensure_trial_subscription(org)
 
     def perform_destroy(self, instance):
-        from uuid import uuid4
+        from shops.services.organization_purge import purge_organization
 
-        instance.slug = (f"deleted-{instance.id}-{uuid4().hex[:12]}")[:80]
-        instance.is_active = False
-        instance.deleted_at = timezone.now()
-        instance.save()
+        purge_organization(instance)
 
     @action(detail=True, methods=["post"], url_path="suspend")
     def suspend(self, request, pk=None):

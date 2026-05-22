@@ -21,7 +21,16 @@ export function clearTokens() {
   localStorage.removeItem(REFRESH_KEY)
 }
 
+/** Eski do'kon konteksti (provider o'chirgandan keyin login/register aralashmasin). */
+export function clearTenantLocalContext() {
+  localStorage.removeItem('organization_id')
+  localStorage.removeItem('current_branch_id')
+  localStorage.removeItem('user_role')
+  localStorage.removeItem('cashier_display_name')
+}
+
 export async function login({ phone, password }) {
+  clearTenantLocalContext()
   const { data } = await api.post('/auth/login/', { phone, password })
   persistTokens(data)
   return data
@@ -35,6 +44,7 @@ export async function logout() {
     /* ignore — we still clear local tokens */
   } finally {
     clearTokens()
+    clearTenantLocalContext()
   }
 }
 
@@ -49,8 +59,15 @@ export async function registerVerifyOtp({ phone, code }) {
 }
 
 export async function registerComplete(payload) {
+  clearTenantLocalContext()
   const { data } = await api.post('/auth/register/complete/', payload)
   persistTokens(data)
+  if (data?.organization?.id) {
+    localStorage.setItem('organization_id', String(data.organization.id))
+  }
+  if (data?.role) {
+    localStorage.setItem('user_role', data.role)
+  }
   return data
 }
 
