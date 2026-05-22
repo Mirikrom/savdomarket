@@ -46,6 +46,41 @@ def _digits_phone(phone: str) -> str:
     return re.sub(r"\D", "", (phone or "").lstrip("+"))
 
 
+def _devsms_auth_token(raw: str) -> str:
+    """`.env` da faqat token yoki `Bearer ...` bo‘lishi mumkin."""
+    token = (raw or "").strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    return token
+
+
+def _devsms_callback_url(raw: str) -> str:
+    """Noto‘g‘ri yoki namuna callback URL yuborilmasin (400 sababi bo‘lishi mumkin)."""
+    url = (raw or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return ""
+    lower = url.lower()
+    if any(
+        bad in lower
+        for bad in ("your-domain", "example.com", "localhost", "127.0.0.1")
+    ):
+        return ""
+    return url
+
+
+def _devsms_error_body(resp) -> str:
+    try:
+        data = resp.json()
+    except ValueError:
+        return (resp.text or "").strip()[:500] or f"HTTP {resp.status_code}"
+    return (
+        data.get("error")
+        or data.get("message")
+        or (resp.text or "").strip()[:500]
+        or f"HTTP {resp.status_code}"
+    )
+
+
 class DevsmsBackend(SmsBackend):
     """devsms.uz — Bearer token bilan SMS yuborish.
 
@@ -62,9 +97,11 @@ class DevsmsBackend(SmsBackend):
             "DEVSMS_API_URL",
             "https://devsms.uz/api/send_sms.php",
         )
-        self.token = (getattr(settings, "DEVSMS_TOKEN", "") or "").strip()
-        self.sender = getattr(settings, "DEVSMS_FROM", "4546") or "4546"
-        self.callback_url = (getattr(settings, "DEVSMS_CALLBACK_URL", "") or "").strip()
+        self.token = _devsms_auth_token(getattr(settings, "DEVSMS_TOKEN", "") or "")
+        self.sender = (getattr(settings, "DEVSMS_FROM", "") or "").strip()
+        self.callback_url = _devsms_callback_url(
+            getattr(settings, "DEVSMS_CALLBACK_URL", "") or ""
+        )
 
     def send(self, phone: str, message: str) -> None:
         import requests
@@ -72,11 +109,16 @@ class DevsmsBackend(SmsBackend):
         if not self.token:
             raise RuntimeError("DEVSMS_TOKEN is not configured.")
 
+        digits = _digits_phone(phone)
+        if len(digits) < 9:
+            raise RuntimeError("Telefon raqami noto‘g‘ri.")
+
         payload: dict[str, Any] = {
-            "phone": _digits_phone(phone),
+            "phone": digits,
             "message": message,
-            "from": self.sender,
         }
+        if self.sender:
+            payload["from"] = self.sender
         if self.callback_url:
             payload["callback_url"] = self.callback_url
 
@@ -91,9 +133,23 @@ class DevsmsBackend(SmsBackend):
                 },
                 timeout=15,
             )
-            resp.raise_for_status()
+            if not resp.ok:
+                err_detail = _devsms_error_body(resp)
+                logger.error(
+                    "devsms.uz HTTP %s phone=%s body=%s api_error=%s",
+                    resp.status_code,
+                    digits,
+                    resp.text[:1000],
+                    err_detail,
+                )
+                raise RuntimeError(err_detail)
+
             data = resp.json()
         except requests.RequestException as exc:
+            if getattr(exc, "response", None) is not None:
+                err_detail = _devsms_error_body(exc.response)
+                logger.error("devsms.uz SMS request failed: %s", err_detail)
+                raise RuntimeError(err_detail) from exc
             logger.exception("devsms.uz SMS request failed: %s", exc)
             raise RuntimeError("SMS yuborib bo‘lmadi. Keyinroq qayta urinib ko‘ring.") from exc
         except ValueError as exc:
@@ -102,7 +158,7 @@ class DevsmsBackend(SmsBackend):
 
         if not data.get("success"):
             err_msg = data.get("message") or data.get("error") or "SMS yuborilmadi"
-            logger.error("devsms.uz SMS rejected: %s payload=%s", err_msg, payload.get("phone"))
+            logger.error("devsms.uz SMS rejected: %s phone=%s", err_msg, digits)
             raise RuntimeError(str(err_msg))
 
         logger.info(
