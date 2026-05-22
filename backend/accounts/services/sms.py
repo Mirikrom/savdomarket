@@ -20,6 +20,171 @@ from django.utils.module_loading import import_string
 
 logger = logging.getLogger(__name__)
 
+# Mijozga ko‘rsatiladigan umumiy xabar (texnik tafsilot API da emas)
+SMS_ERROR_GENERIC = (
+    "SMS hozir yuborib bo‘lmadi. Birozdan keyin qayta urinib ko‘ring. "
+    "Muammo davom etsa, qo‘llab-quvvatlash bilan bog‘laning."
+)
+
+
+class SmsDeliveryError(Exception):
+    """SMS yuborilmadi: mijozga qisqa xabar, logda to‘liq sabab."""
+
+    def __init__(
+        self,
+        user_message: str,
+        technical_detail: str = "",
+        *,
+        status_code: int | None = None,
+    ):
+        self.user_message = user_message
+        self.technical_detail = (technical_detail or user_message).strip()
+        self.status_code = status_code
+        super().__init__(self.technical_detail)
+
+
+def user_friendly_sms_error(
+    technical: str,
+    *,
+    status_code: int | None = None,
+) -> str:
+    """Provayder/API xatosini foydalanuvchi uchun tushunarli o‘zbekcha matnga aylantiradi."""
+    text = (technical or "").strip().lower()
+
+    if status_code == 401 or any(
+        k in text
+        for k in ("unauthorized", "autentifikatsiya", "token", "авторизац")
+    ):
+        return (
+            "SMS xizmati sozlamalari noto‘g‘ri. "
+            "Iltimos, administratorga xabar bering."
+        )
+
+    if status_code == 403:
+        return "SMS yuborish uchun ruxsat yo‘q. Administrator bilan bog‘laning."
+
+    if status_code in (500, 502, 503, 504) or any(
+        k in text
+        for k in (
+            "internal server",
+            "server error",
+            "bad gateway",
+            "service unavailable",
+            "gateway timeout",
+            "server xatosi",
+        )
+    ):
+        return (
+            "SMS xizmati vaqtincha ishlamayapti. "
+            "Bir necha daqiqadan keyin qayta urinib ko‘ring."
+        )
+
+    if any(
+        k in text
+        for k in (
+            "timeout",
+            "timed out",
+            "connection",
+            "connect",
+            "network",
+            "unreachable",
+            "refused",
+            "resolve",
+            "ssl",
+            "internet",
+            "no route",
+            "name or service not known",
+        )
+    ):
+        return (
+            "SMS serveriga ulanib bo‘lmadi. Internet yoki SMS xizmati vaqtincha "
+            "ishlamasligi mumkin. Keyinroq qayta urinib ko‘ring."
+        )
+
+    if any(
+        k in text
+        for k in (
+            "balans",
+            "balance",
+            "yetarli emas",
+            "yetarli yo'q",
+            "yetarli yo‘q",
+            "qolmadi",
+            "qolmagan",
+            "insufficient",
+            "недостаточно",
+            "пополн",
+            "to'ldir",
+            "toldir",
+            "pul",
+            "кредит",
+        )
+    ):
+        return (
+            "SMS yuborish uchun xizmat balansi yetarli emas. "
+            "Iltimos, keyinroq urinib ko‘ring yoki administratorga murojaat qiling."
+        )
+
+    if any(
+        k in text
+        for k in (
+            "модерацию",
+            "moderatsiya",
+            "moderation",
+            "шаблон",
+            "shablon",
+            "мои тексты",
+            "nomaqbul",
+            "bloklangan",
+        )
+    ):
+        return (
+            "SMS matni hali tasdiqlanmagan. "
+            "Iltimos, administratorga xabar bering."
+        )
+
+    if any(k in text for k in ("telefon", "phone", "raqam", "номер", "invalid phone")):
+        return "Telefon raqami noto‘g‘ri. Iltimos, raqamni tekshirib qayta kiriting."
+
+    if any(
+        k in text
+        for k in ("limit", "ko'p", "ko‘p", "juda tez", "rate", "throttle", "1 daqiqa")
+    ):
+        return "Juda tez-tez kod so‘raldi. Biroz kutib, qayta urinib ko‘ring."
+
+    if "devsms_token" in text or "not configured" in text:
+        return "SMS xizmati sozlanmagan. Administrator bilan bog‘laning."
+
+    if "telefon raqami noto" in text:
+        return "Telefon raqami noto‘g‘ri. Iltimos, raqamni tekshirib qayta kiriting."
+
+    return SMS_ERROR_GENERIC
+
+
+def _log_sms_failure(phone: str, exc: SmsDeliveryError) -> None:
+    from accounts.services.phone import mask_phone
+
+    logger.error(
+        "SMS delivery failed phone=%s status=%s user_message=%s technical=%s",
+        mask_phone(phone),
+        exc.status_code,
+        exc.user_message,
+        exc.technical_detail,
+    )
+
+
+def _raise_sms_error(
+    phone: str,
+    technical: str,
+    *,
+    status_code: int | None = None,
+) -> None:
+    user_msg = user_friendly_sms_error(technical, status_code=status_code)
+    exc = SmsDeliveryError(user_msg, technical, status_code=status_code)
+    _log_sms_failure(phone, exc)
+    raise exc
+
+
 # devsms.uz universal_otp shablon turlari (docs 1.1)
 OTP_TEMPLATE_CONFIRM = 1
 OTP_TEMPLATE_PASSWORD_RESET = 2
@@ -140,10 +305,11 @@ class DevsmsBackend(SmsBackend):
     def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
         import requests
 
-        if not self.token:
-            raise RuntimeError("DEVSMS_TOKEN is not configured.")
-
         digits = payload.get("phone") or ""
+
+        if not self.token:
+            _raise_sms_error(digits, "DEVSMS_TOKEN is not configured.")
+
         try:
             resp = requests.post(
                 self.api_url,
@@ -158,37 +324,75 @@ class DevsmsBackend(SmsBackend):
             if not resp.ok:
                 err_detail = _devsms_error_body(resp)
                 logger.error(
-                    "devsms.uz HTTP %s phone=%s body=%s api_error=%s",
+                    "devsms.uz HTTP %s phone=%s response_body=%s api_error=%s payload_keys=%s",
                     resp.status_code,
                     digits,
-                    resp.text[:1000],
+                    resp.text[:2000],
                     err_detail,
+                    list(payload.keys()),
                 )
-                raise RuntimeError(err_detail)
+                _raise_sms_error(
+                    digits,
+                    err_detail,
+                    status_code=resp.status_code,
+                )
 
             data = resp.json()
+        except SmsDeliveryError:
+            raise
+        except requests.Timeout as exc:
+            logger.exception(
+                "devsms.uz timeout phone=%s url=%s",
+                digits,
+                self.api_url,
+            )
+            _raise_sms_error(digits, f"timeout: {exc}")
+        except requests.ConnectionError as exc:
+            logger.exception(
+                "devsms.uz connection error phone=%s url=%s detail=%s",
+                digits,
+                self.api_url,
+                exc,
+            )
+            _raise_sms_error(digits, f"connection: {exc}")
         except requests.RequestException as exc:
             if getattr(exc, "response", None) is not None:
                 err_detail = _devsms_error_body(exc.response)
-                logger.error("devsms.uz SMS request failed: %s", err_detail)
-                raise RuntimeError(err_detail) from exc
-            logger.exception("devsms.uz SMS request failed: %s", exc)
-            raise RuntimeError("SMS yuborib bo‘lmadi. Keyinroq qayta urinib ko‘ring.") from exc
+                status = exc.response.status_code
+                logger.error(
+                    "devsms.uz request error phone=%s status=%s body=%s detail=%s",
+                    digits,
+                    status,
+                    exc.response.text[:2000],
+                    err_detail,
+                )
+                _raise_sms_error(digits, err_detail, status_code=status)
+            logger.exception("devsms.uz SMS request failed phone=%s", digits)
+            _raise_sms_error(digits, str(exc))
         except ValueError as exc:
-            logger.exception("devsms.uz invalid JSON response")
-            raise RuntimeError("SMS provayderidan noto‘g‘ri javob keldi.") from exc
+            logger.exception(
+                "devsms.uz invalid JSON phone=%s raw=%s",
+                digits,
+                getattr(resp, "text", "")[:500],
+            )
+            _raise_sms_error(digits, f"invalid JSON response: {exc}")
 
         if not data.get("success"):
             err_msg = data.get("message") or data.get("error") or "SMS yuborilmadi"
-            logger.error("devsms.uz SMS rejected: %s phone=%s", err_msg, digits)
-            raise RuntimeError(str(err_msg))
+            logger.error(
+                "devsms.uz SMS rejected phone=%s error=%s response=%s",
+                digits,
+                err_msg,
+                data,
+            )
+            _raise_sms_error(digits, str(err_msg))
 
         return data
 
     def send(self, phone: str, message: str) -> None:
         digits = _digits_phone(phone)
         if len(digits) < 9:
-            raise RuntimeError("Telefon raqami noto‘g‘ri.")
+            _raise_sms_error(digits or phone, "Telefon raqami noto‘g‘ri.")
 
         payload: dict[str, Any] = {
             "phone": digits,
@@ -211,11 +415,11 @@ class DevsmsBackend(SmsBackend):
         """Eskiz universal OTP shabloni — alohida moderatsiya shart emas."""
         digits = _digits_phone(phone)
         if len(digits) < 9:
-            raise RuntimeError("Telefon raqami noto‘g‘ri.")
+            _raise_sms_error(digits or phone, "Telefon raqami noto‘g‘ri.")
 
         otp = re.sub(r"\D", "", str(code))
         if not (4 <= len(otp) <= 8):
-            raise RuntimeError("OTP kodi noto‘g‘ri.")
+            _raise_sms_error(digits, "OTP kodi noto‘g‘ri.")
 
         payload: dict[str, Any] = {
             "phone": digits,
@@ -345,21 +549,29 @@ def get_sms_backend() -> SmsBackend:
     return _backend_instance
 
 
-def send_sms(phone: str, message: str) -> None:
-    """Erkin matnli SMS (Eskiz moderatsiyasi kerak bo‘lishi mumkin)."""
+def _validation_error_from_sms(phone: str, exc: Exception):
     from rest_framework import serializers
 
+    if isinstance(exc, SmsDeliveryError):
+        raise serializers.ValidationError({"detail": exc.user_message}) from exc
+
+    technical = str(exc).strip() or repr(exc)
+    logger.exception("SMS unexpected error phone=%s technical=%s", phone, technical)
+    user_msg = user_friendly_sms_error(technical)
+    raise serializers.ValidationError({"detail": user_msg}) from exc
+
+
+def send_sms(phone: str, message: str) -> None:
+    """Erkin matnli SMS (Eskiz moderatsiyasi kerak bo‘lishi mumkin)."""
     try:
         get_sms_backend().send(phone, message)
-    except RuntimeError as exc:
-        raise serializers.ValidationError({"detail": str(exc)}) from exc
+    except Exception as exc:
+        _validation_error_from_sms(phone, exc)
 
 
 def send_otp_sms(phone: str, code: str, template_type: int) -> None:
     """OTP SMS — Devsms universal shablon yoki boshqa backend erkin matn."""
-    from rest_framework import serializers
-
     try:
         get_sms_backend().send_otp(phone, code, template_type)
-    except RuntimeError as exc:
-        raise serializers.ValidationError({"detail": str(exc)}) from exc
+    except Exception as exc:
+        _validation_error_from_sms(phone, exc)
