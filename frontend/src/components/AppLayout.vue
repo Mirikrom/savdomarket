@@ -21,8 +21,14 @@ const navOpen = ref(false)
 const userMenuOpen = ref(false)
 const isLoading = ref(true)
 
-/** POS tablari: admin faqat `?pos=1` bilan yoki `/app/pos` da kassa shell ichida. */
-const POS_TAB_PATH_PREFIXES = ['/app/sales', '/app/products', '/app/debtors']
+/** POS tablari: `?pos=1` bilan kassa shell ichida qoladigan yo‘llar. */
+const POS_TAB_PATH_PREFIXES = [
+  '/app/sales',
+  '/app/products',
+  '/app/debtors',
+  '/app/inventory/receipt',
+  '/app/categories',
+]
 
 function pathMatchesPosTab(path) {
   return POS_TAB_PATH_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))

@@ -779,6 +779,7 @@ onUnmounted(() => {
         :columns="columns"
         :rows="displayRows"
         :loading="loading"
+        clickable
         actions-label=""
         :empty-text="tr('page.products.emptyTable')"
         @row-click="openEdit"
@@ -1055,22 +1056,6 @@ onUnmounted(() => {
   margin: 0 0 12px;
 }
 
-.products-view {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding-bottom: 32px;
-  /* Kassa (qorong‘i) shell ichida :root meros bo‘lmasin — jadvalda oq matn xato */
-  --text: #0f172a;
-  --text-muted: #64748b;
-  --line: #dbe3ef;
-  --surface: #ffffff;
-  --surface-soft: #f8fafc;
-  color: var(--text);
-}
-
 .products-view__thumb-wrap {
   display: flex;
   align-items: center;
@@ -1136,15 +1121,8 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-.products-view__filter-select {
-  flex: 0 0 auto;
+.products-view__toolbar .products-view__filter-select {
   min-width: 180px;
-  border: 1px solid var(--line, #e2e8f0);
-  border-radius: var(--radius-sm);
-  padding: 9px 12px;
-  font-size: 0.92rem;
-  background: var(--surface, #fff);
-  color: var(--text, #0f172a);
 }
 
 .product-image-field {
@@ -1296,122 +1274,8 @@ onUnmounted(() => {
   line-height: 1;
 }
 
-.products-view__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  padding: 14px 18px;
-  border: 1px solid var(--line);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-}
-
-.products-view__search-wrap {
-  flex: 1;
-  min-width: 200px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 4px 4px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, #fff 0%, var(--surface-soft) 100%);
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-.products-view__search-wrap:focus-within {
-  border-color: #7ea4e6;
-  box-shadow: 0 0 0 3px rgba(126, 164, 230, 0.25);
-  background: #fff;
-}
-
-.products-view__search-icon {
-  color: var(--text-muted);
-  font-size: 1rem;
-  opacity: 0.85;
-  user-select: none;
-}
-
-.products-view__search {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  padding: 10px 12px 10px 0;
-  font-size: 0.95rem;
-  outline: none;
-  color: var(--text);
-}
-
-.products-view__search::placeholder {
-  color: var(--text-muted);
-}
-
 .products-view__scan {
   flex-shrink: 0;
-}
-
-.products-view__table {
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
-}
-
-.products-view__table :deep(.data-table) {
-  border-radius: var(--radius-md);
-}
-
-.products-view__table :deep(.data-table table) {
-  border-collapse: separate;
-  border-spacing: 0;
-}
-
-.products-view__table :deep(.data-table thead th) {
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  font-weight: 600;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.products-view__table :deep(.data-table tbody td) {
-  padding: 12px 14px;
-  vertical-align: middle;
-  font-size: 0.92rem;
-  color: var(--text, #0f172a);
-}
-
-.products-view__table :deep(.data-table tbody tr) {
-  cursor: pointer;
-  transition:
-    background 0.16s ease,
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
-}
-
-.products-view__table :deep(.data-table tbody tr:hover) {
-  background: linear-gradient(90deg, #f8fbff 0%, #fff 50%);
-  box-shadow: inset 3px 0 0 var(--primary);
-}
-
-.products-view__table :deep(.data-table tbody tr:active) {
-  transform: scale(0.998);
-}
-
-.products-view__table :deep(.data-table tbody tr:nth-child(even):not(:hover)) {
-  background: rgba(248, 250, 252, 0.65);
-}
-
-.products-view__table :deep(.data-table__actions-col) {
-  width: 56px;
-  text-align: center;
-  vertical-align: middle;
 }
 
 .products-view__del {

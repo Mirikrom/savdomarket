@@ -208,36 +208,37 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div>
+  <div class="products-view sales-history-view">
     <PageHeader :title="tr('page.salesHistory.title')" :subtitle="tr('page.salesHistory.subtitle')" />
 
-    <div class="card filter-bar">
-      <select v-model="filters.branch" class="filter-select">
+    <div class="products-view__toolbar card">
+      <select v-model="filters.branch" class="products-view__filter-select">
         <option value="">{{ tr('page.movements.filterAllBranches') }}</option>
         <option v-for="b in org.branches" :key="b.id" :value="b.id">{{ branchLabel(b) }}</option>
       </select>
 
-      <select v-model="filters.status" class="filter-select">
+      <select v-model="filters.status" class="products-view__filter-select">
         <option value="">{{ tr('page.salesHistory.filterAllStatuses') }}</option>
         <option v-for="opt in statusFilterOptions" :key="opt.code" :value="opt.code">{{ opt.label }}</option>
       </select>
 
-      <input v-model="filters.date_from" type="date" class="filter-input" />
-      <input v-model="filters.date_to" type="date" class="filter-input" />
+      <input v-model="filters.date_from" type="date" class="products-view__filter-input" />
+      <input v-model="filters.date_to" type="date" class="products-view__filter-input" />
 
       <button class="btn btn--ghost btn--sm" type="button" @click="clearFilters">
         {{ tr('page.salesHistory.clearFilters') }}
       </button>
     </div>
 
-    <DataTable
-      :columns="columns"
-      :rows="rows"
-      :loading="loading"
-      clickable
-      :empty-text="tr('page.salesHistory.emptyTable')"
-      @row-click="showDetail"
-    >
+    <div class="products-view__table card">
+      <DataTable
+        :columns="columns"
+        :rows="rows"
+        :loading="loading"
+        clickable
+        :empty-text="tr('page.salesHistory.emptyTable')"
+        @row-click="showDetail"
+      >
       <template #cell:status="{ row }">
         <SyncStatusIcon
           :kind="saleStatusIconKind(row.status)"
@@ -251,7 +252,8 @@ onUnmounted(() => {
         <button class="icon-btn" type="button" @click.stop="openReceipt(row)">{{ tr('page.salesHistory.btnPrint') }}</button>
         <button class="icon-btn" type="button" @click.stop="showDetail(row)">{{ tr('page.salesHistory.btnView') }}</button>
       </template>
-    </DataTable>
+      </DataTable>
+    </div>
 
     <AppModal
       :open="detailOpen"
@@ -331,26 +333,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.filter-bar {
-  display: flex;
-  gap: 10px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.filter-select,
-.filter-input {
-  border: 1px solid var(--line);
-  background: var(--surface-soft);
-  border-radius: var(--radius-sm);
-  padding: 9px 12px;
-  font-size: 0.92rem;
-  outline: none;
-  min-width: 140px;
-}
-
 .sale-detail h4 {
   margin: 16px 0 8px;
   font-size: 0.92rem;
@@ -440,9 +422,5 @@ onUnmounted(() => {
   text-align: center;
   padding: 24px;
   color: var(--text-muted);
-}
-
-.filter-bar + :deep(.data-table) {
-  margin-bottom: 0;
 }
 </style>

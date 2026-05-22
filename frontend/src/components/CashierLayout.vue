@@ -57,6 +57,7 @@ const extraNavActive = computed(() =>
     const path = typeof t.to === 'string' ? t.to : t.to?.path
     if (path && route.path === path) return true
     if (t.key === 'debtors' && route.path.startsWith('/app/debtors')) return true
+    if (t.key === 'receipt' && route.path.startsWith('/app/inventory/receipt')) return true
     return false
   }),
 )
@@ -496,9 +497,15 @@ async function logout() {
 }
 
 .pos-side__label {
-  font-size: 0.7rem;
+  display: block;
+  width: 100%;
+  max-width: 72px;
+  text-align: center;
+  font-size: 0.65rem;
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  word-break: break-word;
 }
 
 .pos-side__item--toggle {
@@ -531,8 +538,12 @@ async function logout() {
 }
 
 .pos-side__item--child {
-  width: 64px;
+  width: 68px;
   padding: 8px 0;
+}
+
+.pos-side__item--child .pos-side__label {
+  font-size: 0.62rem;
 }
 
 .pos-extra-enter-active,
@@ -926,8 +937,13 @@ async function logout() {
   height: 26px;
 }
   .pos-tab__label {
+    display: block;
+    width: 100%;
+    text-align: center;
     font-size: 0.72rem;
     font-weight: 500;
+    line-height: 1.2;
+    word-break: break-word;
   }
   .pos-user-pop {
     position: fixed;

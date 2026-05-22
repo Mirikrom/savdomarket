@@ -146,7 +146,7 @@ function leaveReceipt() {
 </script>
 
 <template>
-  <div>
+  <div class="products-view stock-receipt-view">
     <PageHeader :title="tr('page.receipt.title')" :subtitle="tr('page.receipt.subtitle')">
       <template #actions>
         <button type="button" class="btn btn--ghost" @click="leaveReceipt">
@@ -260,14 +260,27 @@ function leaveReceipt() {
 .receipt-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
+  width: 100%;
+}
+
+.receipt-form > .card {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .head-card {
   display: grid;
   grid-template-columns: 1fr 1.5fr;
   gap: 14px;
-  padding: 14px 16px;
+  padding: 14px 18px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.receipt-form > .card:not(.head-card) {
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
 }
 
 .receipt-head {

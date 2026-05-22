@@ -288,7 +288,7 @@ onMounted(fetchDebtors)
 </script>
 
 <template>
-  <div :class="['debtors-page', isPosMode ? 'debtors-page--pos' : '']">
+  <div class="products-view debtors-view" :class="{ 'debtors-view--pos': isPosMode }">
     <PageHeader
       v-if="!isPosMode"
       :title="tr('page.debtors.title')"
@@ -307,30 +307,32 @@ onMounted(fetchDebtors)
       <button class="debtors-pos-head__add" type="button" @click="openCreate">{{ tr('page.debtors.posAddBtn') }}</button>
     </header>
 
-    <div :class="['debtors-summary', isPosMode ? 'debtors-summary--pos card' : 'card']">
-      <div>
+    <div class="products-view__toolbar card debtors-toolbar">
+      <div class="debtors-toolbar__stat">
         <span class="debtors-summary__label">{{ tr('page.debtors.summaryTotal') }}</span>
         <strong class="debtors-summary__value">{{ formatMoney(totalDebt) }}</strong>
       </div>
-      <div class="debtors-summary__search">
+      <div class="products-view__search-wrap debtors-toolbar__search">
+        <span class="products-view__search-icon" aria-hidden="true">⌕</span>
         <input
           v-model="search"
           type="search"
+          class="products-view__search"
           :placeholder="tr('page.debtors.searchPlaceholder')"
           @keyup.enter="!isPosMode && fetchDebtors()"
         />
-        <button
-          v-if="!isPosMode"
-          class="btn btn--ghost btn--sm"
-          type="button"
-          @click="fetchDebtors"
-        >
-          {{ tr('page.debtors.searchBtn') }}
-        </button>
       </div>
+      <button
+        v-if="!isPosMode"
+        class="btn btn--ghost btn--sm"
+        type="button"
+        @click="fetchDebtors"
+      >
+        {{ tr('page.debtors.searchBtn') }}
+      </button>
     </div>
 
-    <div :class="['debtors-table-wrap', isPosMode ? 'debtors-table-wrap--pos card' : '']">
+    <div class="products-view__table card">
       <DataTable
         :columns="columns"
         :rows="filteredRows"
@@ -489,54 +491,27 @@ onMounted(fetchDebtors)
 </template>
 
 <style scoped>
-.debtors-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
+.debtors-toolbar__stat {
+  flex-shrink: 0;
 }
 
-.debtors-summary--pos {
-  border-radius: 14px;
-  margin-bottom: 12px;
+.debtors-toolbar__search {
+  flex: 1;
+  min-width: 200px;
+  max-width: 480px;
+  margin-left: auto;
 }
 
 .debtors-summary__label {
   display: block;
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--text-muted, #64748b);
   margin-bottom: 4px;
 }
 
 .debtors-summary__value {
   font-size: 1.35rem;
   color: var(--danger, #c0392b);
-}
-
-.debtors-summary__search {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex: 1;
-  min-width: 220px;
-  max-width: 420px;
-}
-
-.debtors-summary__search input {
-  flex: 1;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 9px 12px;
-  background: var(--surface-soft);
-}
-
-.debtors-page--pos .debtors-summary__search input {
-  padding: 12px 14px;
-  font-size: 1rem;
-  border-radius: 12px;
 }
 
 .debtors-pos-head {
@@ -573,28 +548,22 @@ onMounted(fetchDebtors)
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.28);
 }
 
-.debtors-table-wrap {
-  overflow-x: auto;
-}
-
-.debtors-table-wrap--pos {
-  border-radius: 14px;
-  padding: 0;
-  overflow: hidden;
-}
-
-.debtors-table-wrap--pos :deep(.data-table table) {
+.debtors-view--pos .products-view__table .data-table {
   font-size: 0.88rem;
 }
 
-.debtors-table-wrap--pos :deep(.data-table th),
-.debtors-table-wrap--pos :deep(.data-table td) {
+.debtors-view--pos .products-view__table .data-table th,
+.debtors-view--pos .products-view__table .data-table td {
   padding: 10px 12px;
   white-space: nowrap;
 }
 
-.debtors-table-wrap--pos :deep(.data-table__actions-col) {
+.debtors-view--pos .products-view__table .data-table__actions-col {
   min-width: 120px;
+}
+
+.debtors-view .products-view__table {
+  overflow-x: auto;
 }
 
 .debtor-name-cell {
@@ -610,12 +579,12 @@ onMounted(fetchDebtors)
 
 .debtor-name-cell small {
   font-size: 0.8rem;
-  color: var(--muted);
+  color: var(--text-muted, #64748b);
 }
 
 .debtors-date {
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--text-muted, #64748b);
 }
 
 .debtors-date--overdue {
@@ -624,7 +593,7 @@ onMounted(fetchDebtors)
 }
 
 .debtors-muted {
-  color: var(--muted);
+  color: var(--text-muted, #64748b);
   font-size: 0.9rem;
 }
 
@@ -638,7 +607,7 @@ onMounted(fetchDebtors)
 }
 
 .debt-zero {
-  color: var(--muted);
+  color: var(--text-muted, #64748b);
 }
 
 .btn--success {
@@ -685,8 +654,8 @@ onMounted(fetchDebtors)
   gap: 12px;
 }
 
-.debtors-page--pos :deep(.field input),
-.debtors-page--pos :deep(.field select) {
+.debtors-view--pos :deep(.field input),
+.debtors-view--pos :deep(.field select) {
   font-size: 1rem;
   padding: 12px 14px;
 }
