@@ -136,7 +136,7 @@ class RegisterRequestOtpSerializer(serializers.Serializer):
         return normalized
 
     def save(self, **kwargs):
-        from accounts.services.sms import send_sms
+        from accounts.services.sms import OTP_TEMPLATE_REGISTRATION, send_otp_sms
 
         request = self.context.get("request")
         phone = self.validated_data["phone"]
@@ -148,11 +148,7 @@ class RegisterRequestOtpSerializer(serializers.Serializer):
             ip_address=ip,
             user_agent=ua,
         )
-        send_sms(
-            phone,
-            f"SavdoPro: ro'yxatdan o'tish kodingiz {result.raw_code}. "
-            f"Kod {result.expires_in // 60} daqiqa ichida amal qiladi.",
-        )
+        send_otp_sms(phone, result.raw_code, OTP_TEMPLATE_REGISTRATION)
         AuthAuditLog.objects.create(
             event=AuthAuditLog.Event.OTP_REQUESTED,
             destination=phone,
@@ -339,7 +335,7 @@ class ForgotPasswordRequestSerializer(serializers.Serializer):
         return normalize_phone(value)
 
     def save(self, **kwargs):
-        from accounts.services.sms import send_sms
+        from accounts.services.sms import OTP_TEMPLATE_PASSWORD_RESET, send_otp_sms
 
         request = self.context.get("request")
         phone = self.validated_data["phone"]
@@ -355,11 +351,7 @@ class ForgotPasswordRequestSerializer(serializers.Serializer):
                     ip_address=ip,
                     user_agent=ua,
                 )
-                send_sms(
-                    phone,
-                    f"SavdoPro: parolni tiklash kodingiz {result.raw_code}. "
-                    f"Kod {result.expires_in // 60} daqiqa ichida amal qiladi.",
-                )
+                send_otp_sms(phone, result.raw_code, OTP_TEMPLATE_PASSWORD_RESET)
                 AuthAuditLog.objects.create(
                     user=user,
                     event=AuthAuditLog.Event.PASSWORD_RESET_REQUESTED,

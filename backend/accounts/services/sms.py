@@ -20,10 +20,34 @@ from django.utils.module_loading import import_string
 
 logger = logging.getLogger(__name__)
 
+# devsms.uz universal_otp shablon turlari (docs 1.1)
+OTP_TEMPLATE_CONFIRM = 1
+OTP_TEMPLATE_PASSWORD_RESET = 2
+OTP_TEMPLATE_REGISTRATION = 3
+OTP_TEMPLATE_LOGIN = 4
+
 
 class SmsBackend(ABC):
     @abstractmethod
     def send(self, phone: str, message: str) -> None: ...
+
+    def send_otp(self, phone: str, code: str, template_type: int) -> None:
+        """OTP SMS. Devsms — tasdiqlangan universal shablon; boshqalar — erkin matn."""
+        from accounts.services.otp import CODE_TTL_SECONDS
+
+        minutes = max(1, CODE_TTL_SECONDS // 60)
+        labels = {
+            OTP_TEMPLATE_REGISTRATION: "ro'yxatdan o'tish",
+            OTP_TEMPLATE_PASSWORD_RESET: "parolni tiklash",
+            OTP_TEMPLATE_LOGIN: "tizimga kirish",
+            OTP_TEMPLATE_CONFIRM: "amaliyotni tasdiqlash",
+        }
+        label = labels.get(template_type, "tasdiqlash")
+        self.send(
+            phone,
+            f"SavdoPro: {label} kodingiz {code}. "
+            f"Kod {minutes} daqiqa ichida amal qiladi.",
+        )
 
 
 class ConsoleSmsBackend(SmsBackend):
@@ -68,6 +92,13 @@ def _devsms_callback_url(raw: str) -> str:
     return url
 
 
+def _devsms_service_name(raw: str) -> str:
+    """2–50 belgi: harf, raqam, bo‘shliq, nuqta, tire (devsms docs)."""
+    name = re.sub(r"[^\w\s.\-]", "", (raw or "").strip(), flags=re.ASCII)
+    name = re.sub(r"\s+", " ", name).strip()[:50]
+    return name if len(name) >= 2 else "SavdoPro"
+
+
 def _devsms_error_body(resp) -> str:
     try:
         data = resp.json()
@@ -102,26 +133,17 @@ class DevsmsBackend(SmsBackend):
         self.callback_url = _devsms_callback_url(
             getattr(settings, "DEVSMS_CALLBACK_URL", "") or ""
         )
+        self.service_name = _devsms_service_name(
+            getattr(settings, "DEVSMS_OTP_SERVICE_NAME", "SavdoPro") or "SavdoPro"
+        )
 
-    def send(self, phone: str, message: str) -> None:
+    def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
         import requests
 
         if not self.token:
             raise RuntimeError("DEVSMS_TOKEN is not configured.")
 
-        digits = _digits_phone(phone)
-        if len(digits) < 9:
-            raise RuntimeError("Telefon raqami noto‘g‘ri.")
-
-        payload: dict[str, Any] = {
-            "phone": digits,
-            "message": message,
-        }
-        if self.sender:
-            payload["from"] = self.sender
-        if self.callback_url:
-            payload["callback_url"] = self.callback_url
-
+        digits = payload.get("phone") or ""
         try:
             resp = requests.post(
                 self.api_url,
@@ -161,11 +183,56 @@ class DevsmsBackend(SmsBackend):
             logger.error("devsms.uz SMS rejected: %s phone=%s", err_msg, digits)
             raise RuntimeError(str(err_msg))
 
+        return data
+
+    def send(self, phone: str, message: str) -> None:
+        digits = _digits_phone(phone)
+        if len(digits) < 9:
+            raise RuntimeError("Telefon raqami noto‘g‘ri.")
+
+        payload: dict[str, Any] = {
+            "phone": digits,
+            "message": message,
+        }
+        if self.sender:
+            payload["from"] = self.sender
+        if self.callback_url:
+            payload["callback_url"] = self.callback_url
+
+        data = self._request(payload)
         logger.info(
             "devsms.uz SMS sent phone=%s sms_id=%s status=%s",
-            payload.get("phone"),
+            digits,
             (data.get("data") or {}).get("sms_id"),
             (data.get("data") or {}).get("status"),
+        )
+
+    def send_otp(self, phone: str, code: str, template_type: int) -> None:
+        """Eskiz universal OTP shabloni — alohida moderatsiya shart emas."""
+        digits = _digits_phone(phone)
+        if len(digits) < 9:
+            raise RuntimeError("Telefon raqami noto‘g‘ri.")
+
+        otp = re.sub(r"\D", "", str(code))
+        if not (4 <= len(otp) <= 8):
+            raise RuntimeError("OTP kodi noto‘g‘ri.")
+
+        payload: dict[str, Any] = {
+            "phone": digits,
+            "type": "universal_otp",
+            "template_type": template_type,
+            "service_name": self.service_name,
+            "otp_code": otp,
+        }
+        if self.callback_url:
+            payload["callback_url"] = self.callback_url
+
+        data = self._request(payload)
+        logger.info(
+            "devsms.uz universal_otp phone=%s template=%s sms_id=%s",
+            digits,
+            template_type,
+            (data.get("data") or {}).get("sms_id"),
         )
 
 
@@ -279,10 +346,20 @@ def get_sms_backend() -> SmsBackend:
 
 
 def send_sms(phone: str, message: str) -> None:
-    """Convenience wrapper used by the OTP service."""
+    """Erkin matnli SMS (Eskiz moderatsiyasi kerak bo‘lishi mumkin)."""
     from rest_framework import serializers
 
     try:
         get_sms_backend().send(phone, message)
+    except RuntimeError as exc:
+        raise serializers.ValidationError({"detail": str(exc)}) from exc
+
+
+def send_otp_sms(phone: str, code: str, template_type: int) -> None:
+    """OTP SMS — Devsms universal shablon yoki boshqa backend erkin matn."""
+    from rest_framework import serializers
+
+    try:
+        get_sms_backend().send_otp(phone, code, template_type)
     except RuntimeError as exc:
         raise serializers.ValidationError({"detail": str(exc)}) from exc
