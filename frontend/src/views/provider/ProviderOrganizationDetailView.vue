@@ -872,4 +872,60 @@ function dismissInviteBanner() {
   align-items: flex-end;
   gap: 6px;
 }
+
+@media (max-width: 640px) {
+  .prov-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .prov-head__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .prov-head__actions .prov-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .prov-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prov-card__actions {
+    flex-direction: column;
+  }
+
+  .prov-card__actions .prov-btn {
+    width: 100%;
+  }
+
+  .prov-section__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .prov-input--inline {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+  }
+
+  .prov-member-actions {
+    align-items: stretch;
+  }
+
+  .prov-modal {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .prov-modal__card {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 14px 14px 0 0;
+    overflow-y: auto;
+  }
+}
 </style>

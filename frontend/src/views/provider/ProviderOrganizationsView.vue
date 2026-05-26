@@ -737,4 +737,10 @@ async function quickExtend(org) {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+@media (max-width: 640px) {
+  .prov-filters {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

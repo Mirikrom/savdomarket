@@ -221,4 +221,21 @@ onMounted(async () => {
   background: #efe8f5;
   color: #5c3d7a;
 }
+
+@media (max-width: 640px) {
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-select,
+  .filter-input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .filter-bar .btn {
+    width: 100%;
+  }
+}
 </style>

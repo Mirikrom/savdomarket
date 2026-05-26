@@ -582,6 +582,39 @@ onMounted(fetchDebtors)
   color: var(--text-muted, #64748b);
 }
 
+@media (max-width: 640px) {
+  .debtors-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .debtors-toolbar__search {
+    min-width: 0;
+    max-width: none;
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .debtors-toolbar__stat {
+    width: 100%;
+    text-align: center;
+  }
+
+  .debtors-pos-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .debtors-pos-head__add {
+    width: 100%;
+  }
+
+  .debtors-view--pos .products-view__table .data-table th,
+  .debtors-view--pos .products-view__table .data-table td {
+    white-space: normal;
+  }
+}
+
 .debtors-date {
   font-size: 0.85rem;
   color: var(--text-muted, #64748b);

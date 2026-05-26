@@ -423,4 +423,16 @@ onUnmounted(() => {
   padding: 24px;
   color: var(--text-muted);
 }
+
+@media (max-width: 640px) {
+  .sale-detail__meta {
+    grid-template-columns: 1fr;
+  }
+
+  .sale-detail__items li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
 </style>

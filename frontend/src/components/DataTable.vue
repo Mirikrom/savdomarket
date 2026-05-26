@@ -53,12 +53,17 @@ const actionsHeading = computed(() => props.actionsLabel ?? tr('table.actions'))
           :key="row[rowKey]"
           @click="emit('row-click', row)"
         >
-          <td v-for="col in columns" :key="col.key">
+          <td v-for="col in columns" :key="col.key" :data-label="col.label">
             <slot :name="`cell:${col.key}`" :row="row" :value="row[col.key]">
               {{ col.formatter ? col.formatter(row[col.key], row) : row[col.key] }}
             </slot>
           </td>
-          <td v-if="$slots.actions" class="data-table__actions-col" @click.stop>
+          <td
+            v-if="$slots.actions"
+            class="data-table__actions-col"
+            :data-label="actionsHeading"
+            @click.stop
+          >
             <slot name="actions" :row="row" />
           </td>
         </tr>

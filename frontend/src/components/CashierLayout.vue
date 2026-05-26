@@ -826,8 +826,21 @@ async function logout() {
     display: none;
   }
   .pos-content {
-    padding: 10px 12px 92px; /* tabbar */
+    padding: 8px 10px calc(88px + env(safe-area-inset-bottom));
     box-sizing: border-box;
+  }
+
+  .pos-content__body,
+  .pos-content__view {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .pos-content__view .products-view {
+    overflow: visible;
+    max-width: none;
+    padding-bottom: 12px;
   }
   .pos-tabbar-extra {
     position: fixed;

@@ -274,10 +274,24 @@ onMounted(() => {
 
 @media (max-width: 640px) {
   .stat-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
+
   .stat-grid .stat-card:first-child {
-    grid-column: span 2;
+    grid-column: auto;
+  }
+
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-input,
+  .filter-select {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+    font-size: 16px;
   }
 }
 </style>
