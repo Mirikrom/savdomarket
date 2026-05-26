@@ -30,6 +30,7 @@ class StockMovement(TimeStampedModel):
         OUT = "out", "Out"
         ADJUST = "adjust", "Adjust"
         RETURN = "return", "Return"
+        PRODUCT_CREATE = "product_create", "Product create"
 
     organization = models.ForeignKey(
         "shops.Organization", on_delete=models.CASCADE, related_name="stock_movements"

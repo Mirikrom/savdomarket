@@ -12,7 +12,11 @@ import {
   sortProductsForDisplay,
 } from '../../lib/productSort'
 import { POS_SHELL_QUERY_KEY, POS_SHELL_QUERY_VALUE } from '../../posShellQuery'
-import { loadCatalogFromIndexedDB } from '../../offline/catalogSync'
+import {
+  loadCatalogFromIndexedDB,
+  loadStockMapFromIndexedDB,
+  syncCatalogToIndexedDB,
+} from '../../offline/catalogSync'
 import {
   attachCachedImagesToProducts,
   cacheProductImages,
@@ -333,7 +337,9 @@ async function loadFromIndexedDBCache() {
   const { orgId, branchId } = await resolvePosIds(org)
   if (!orgId) return false
 
-  const cached = await loadCatalogFromIndexedDB(orgId, branchId)
+  const cached = await loadCatalogFromIndexedDB(orgId, branchId, {
+    refreshFromApi: isOnline.value,
+  })
   if (!cached.hasCache) return false
 
   rows.value = sortProductsForDisplay(await attachCachedImagesToProducts(cached.products))
@@ -364,8 +370,37 @@ async function fetchStockMap() {
     }
     stockMap.value = map
   } catch {
-    await loadFromIndexedDBCache()
+    try {
+      const cachedQty = await loadStockMapFromIndexedDB(branchId)
+      if (Object.keys(cachedQty).length) {
+        applyStockMapFromQuantities(rows.value, cachedQty)
+      }
+    } catch {
+      /* qoldiqni yangilab bo‘lmasa — mahsulot ro‘yxatini saqlab qolamiz */
+    }
   }
+}
+
+function mergeCreatedProductRow(created) {
+  if (!created?.id) return
+  const id = Number(created.id)
+  const list = rows.value.filter((r) => Number(r.id) !== id)
+  rows.value = sortProductsForDisplay([created, ...list])
+  const qty = Number(created._initialStock ?? 0)
+  const min = Number(created.min_stock ?? 0)
+  if (org.currentBranchId) {
+    stockMap.value = {
+      ...stockMap.value,
+      [id]: { quantity: qty, is_low: qty <= min, min_stock: min },
+    }
+  }
+}
+
+async function applyProductsList(pList) {
+  if (!Array.isArray(pList)) {
+    throw new Error('Mahsulotlar ro‘yxati noto‘g‘ri javob qaytardi')
+  }
+  rows.value = sortProductsForDisplay(await attachCachedImagesToProducts(pList))
 }
 
 async function fetchData() {
@@ -373,8 +408,12 @@ async function fetchData() {
   apiError.value = ''
   await refreshPendingSyncState()
 
+  if (auth.organizationId) {
+    localStorage.setItem('organization_id', String(auth.organizationId))
+  }
+
   await hydrateOrganizationStore(org)
-  const { orgId } = await resolvePosIds(org)
+  const { orgId, branchId } = await resolvePosIds(org)
   if (orgId) await pruneStaleOfflineCatalog(orgId)
 
   const ok = await checkApiReachable()
@@ -391,35 +430,59 @@ async function fetchData() {
     return
   }
 
+  let productsLoaded = false
+
   try {
     await syncOfflineMutations().catch((err) => {
       console.warn('[offline] kutilayotgan mahsulotlar sinxroni:', err)
     })
-    const [pList, cList] = await Promise.all([products.list(), categories.list()])
-    rows.value = sortProductsForDisplay(await attachCachedImagesToProducts(pList))
-    categoryList.value = cList
-    catalogOffline.value = false
-    await fetchStockMap()
-    cacheProductImages(rows.value, { concurrency: 3 }).then((r) => {
-      if (r.cached) attachCachedImagesToProducts(rows.value).then((next) => {
-        rows.value = next
-      })
-    }).catch(() => {})
 
-    const { orgId, branchId } = await resolvePosIds(org)
+    try {
+      const pList = await products.list()
+      await applyProductsList(pList)
+      productsLoaded = true
+      catalogOffline.value = false
+    } catch (err) {
+      console.warn('[products] API ro‘yxat:', err)
+      if (!rows.value.length) {
+        throw err
+      }
+    }
+
+    try {
+      categoryList.value = await categories.list()
+    } catch (err) {
+      console.warn('[products] kategoriyalar:', err)
+    }
+
+    await fetchStockMap()
+
     if (orgId && branchId) {
+      await syncCatalogToIndexedDB(orgId, branchId).catch((err) => {
+        console.warn('[catalog] kesh yangilash:', err)
+      })
       scheduleFullSync(orgId, branchId, {
         branches: org.branches,
         organization: org.organization,
         force: false,
       }).catch(() => {})
     }
+
+    cacheProductImages(rows.value, { concurrency: 3 }).then((r) => {
+      if (r.cached) {
+        attachCachedImagesToProducts(rows.value).then((next) => {
+          rows.value = next
+        })
+      }
+    }).catch(() => {})
   } catch {
-    const restored = await loadFromIndexedDBCache()
-    catalogOffline.value = restored || rows.value.length > 0
-    isOnline.value = false
-    if (!rows.value.length) {
-      apiError.value = 'Server bilan bog‘lanib bo‘lmadi va lokal kesh bo‘sh.'
+    if (!productsLoaded) {
+      const restored = await loadFromIndexedDBCache()
+      catalogOffline.value = restored || rows.value.length > 0
+      isOnline.value = false
+      if (!rows.value.length) {
+        apiError.value = 'Server bilan bog‘lanib bo‘lmadi va lokal kesh bo‘sh.'
+      }
     }
   } finally {
     loading.value = false
@@ -585,11 +648,24 @@ async function submit() {
         await products.update(editingId.value, payload)
       }
     } else if (imageFile.value) {
-      await products.create(payload, { image: imageFile.value })
+      const created = await products.create(payload, { image: imageFile.value })
+      mergeCreatedProductRow({
+        ...created,
+        _initialStock: Number(payload.initial_quantity ?? 0),
+      })
     } else {
-      await products.create(payload)
+      const created = await products.create(payload)
+      mergeCreatedProductRow({
+        ...created,
+        _initialStock: Number(payload.initial_quantity ?? 0),
+      })
     }
     modalOpen.value = false
+    filters.syncStatus = ''
+    search.value = ''
+    if (orgId && branchId) {
+      await syncCatalogToIndexedDB(orgId, branchId).catch(() => {})
+    }
     await fetchData()
   } catch (error) {
     apiError.value = error?._notifyHandled

@@ -54,7 +54,14 @@ class ProductSerializer(serializers.ModelSerializer):
             "initial_quantity",
             "clear_image",
         ]
-        read_only_fields = ["id", "organization", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "organization",
+            "created_at",
+            "updated_at",
+            "is_active",
+            "deleted_at",
+        ]
 
     def get_image_url(self, obj):
         if not obj.image:
@@ -99,12 +106,31 @@ class ProductSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         initial_qty = validated_data.pop("initial_quantity", Decimal("0"))
         validated_data.pop("clear_image", None)
+        validated_data.pop("is_active", None)
+        validated_data.pop("deleted_at", None)
         if initial_qty is None:
             initial_qty = Decimal("0")
         request = self.context.get("request")
+        user = request.user if request and request.user.is_authenticated else None
         with transaction.atomic():
             product = super().create(validated_data)
-            if initial_qty > 0:
+            if not product.is_active or product.deleted_at is not None:
+                product.is_active = True
+                product.deleted_at = None
+                product.save(update_fields=["is_active", "deleted_at", "updated_at"])
+            if initial_qty > 0 and product.branch_id:
+                StockMovement.objects.create(
+                    organization=product.organization,
+                    branch=product.branch,
+                    product=product,
+                    movement_type=StockMovement.MovementType.PRODUCT_CREATE,
+                    quantity=Decimal("0"),
+                    unit_cost=Decimal("0"),
+                    note="Mahsulot qo'shildi",
+                    ref_type="catalog",
+                    ref_id=product.id,
+                    created_by=user,
+                )
                 StockMovement.objects.create(
                     organization=product.organization,
                     branch=product.branch,
@@ -112,13 +138,17 @@ class ProductSerializer(serializers.ModelSerializer):
                     movement_type=StockMovement.MovementType.IN,
                     quantity=initial_qty,
                     unit_cost=product.cost_price or Decimal("0"),
-                    note="Mahsulot qo‘shish: kirim",
-                    created_by=request.user if request and request.user.is_authenticated else None,
+                    note="Kirim",
+                    ref_type="catalog",
+                    ref_id=product.id,
+                    created_by=user,
                 )
             return product
 
     def update(self, instance, validated_data):
         validated_data.pop("initial_quantity", None)
+        validated_data.pop("is_active", None)
+        validated_data.pop("deleted_at", None)
         clear_image = validated_data.pop("clear_image", False)
         has_new_image = "image" in validated_data
         if clear_image and not has_new_image:

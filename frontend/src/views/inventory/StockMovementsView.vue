@@ -30,6 +30,7 @@ const TYPE_LABELS = {
   out: 'Chiqim',
   adjust: 'Tuzatish',
   return: 'Qaytarish',
+  product_create: "Mahsulot qo'shildi",
 }
 
 const TYPE_CLASS = {
@@ -37,6 +38,7 @@ const TYPE_CLASS = {
   out: 'pill pill--red',
   adjust: 'pill pill--blue',
   return: 'pill pill--yellow',
+  product_create: 'pill pill--purple',
 }
 
 const columns = [
@@ -213,5 +215,10 @@ onMounted(async () => {
 .pill--yellow {
   background: #fff4d6;
   color: #8a6708;
+}
+
+.pill--purple {
+  background: #efe8f5;
+  color: #5c3d7a;
 }
 </style>

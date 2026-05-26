@@ -1,11 +1,18 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
+import AppModal from '../../components/AppModal.vue'
+import BarcodeScanner from '../../components/BarcodeScanner.vue'
+import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import { useHardwareBarcodeScanner } from '../../composables/useHardwareBarcodeScanner'
+import { findProductByScanCode, normalizeScanCode } from '../../lib/barcodeScan'
+import { sortProductsForDisplay } from '../../lib/productSort'
+import { attachCachedImagesToProducts, resolveProductImageSrc } from '../../offline/imageCache'
 import { useI18n } from '../../i18n'
-import { products as productsApi } from '../../services/catalog.service'
-import { stockMovements } from '../../services/inventory.service'
+import { categories, products as productsApi } from '../../services/catalog.service'
+import { stockLevels, stockMovements } from '../../services/inventory.service'
 import { routeWithPosShell } from '../../posShellQuery'
 import { useAuthStore } from '../../stores/auth'
 import { useOrganizationStore } from '../../stores/organization'
@@ -13,129 +20,246 @@ import { useOrganizationStore } from '../../stores/organization'
 const router = useRouter()
 const auth = useAuthStore()
 const org = useOrganizationStore()
-const { tr } = useI18n()
+const { tr, locale, branchLabel } = useI18n()
 
-const productList = ref([])
+const rows = ref([])
 const loading = ref(true)
+const search = ref('')
+const branchFilter = ref('')
+const modalOpen = ref(false)
+const scannerOpen = ref(false)
+const selectedProduct = ref(null)
+const qtyInputRef = ref(null)
+const hardwareScanRef = ref(null)
+const hardwareScanValue = ref('')
 const saving = ref(false)
 const apiError = ref('')
 const successMsg = ref('')
 
-const form = reactive({
+const receiptForm = reactive({
   branch: '',
+  quantity: '1',
+  unit_cost: '0',
   note: '',
-  items: [createLine()],
 })
 
-function createLine() {
-  return {
-    product: '',
-    quantity: '1',
-    unit_cost: '0',
-  }
+const unitOptions = computed(() => [
+  { value: 'piece', label: tr('page.products.unit.piece') },
+  { value: 'kg', label: tr('page.products.unit.kg') },
+  { value: 'liter', label: tr('page.products.unit.liter') },
+  { value: 'pack', label: tr('page.products.unit.pack') },
+])
+
+function numberLocale() {
+  return locale.value === 'ru' ? 'ru-RU' : 'uz-UZ'
 }
 
-const productMap = computed(() => {
-  const map = {}
-  for (const p of productList.value) map[p.id] = p
-  return map
+function productRowImageSrc(row) {
+  return resolveProductImageSrc(row)
+}
+
+function productRowHasImage(row) {
+  return Boolean(productRowImageSrc(row))
+}
+
+function formatStockQty(row) {
+  const n = Number(row._stockQty ?? 0)
+  const unit = unitOptions.value.find((u) => u.value === row.unit)?.label || row.unit || ''
+  return `${n.toLocaleString(numberLocale(), { maximumFractionDigits: 3 })} ${unit}`.trim()
+}
+
+const columns = computed(() => {
+  const loc = numberLocale()
+  return [
+    {
+      key: 'image_url',
+      label: tr('page.products.colImage'),
+      width: '84px',
+    },
+    { key: 'name', label: tr('page.products.colName') },
+    {
+      key: '_categoryName',
+      label: tr('page.products.colCategory'),
+      width: '160px',
+    },
+    { key: 'sku', label: 'SKU', width: '120px' },
+    {
+      key: '_stockQty',
+      label: tr('page.products.colStock'),
+      width: '120px',
+    },
+    {
+      key: 'cost_price',
+      label: tr('page.products.colCost'),
+      formatter: (v) => Number(v ?? 0).toLocaleString(loc),
+      width: '100px',
+    },
+  ]
 })
 
-const totalCost = computed(() => {
-  return form.items.reduce((sum, item) => {
-    const q = Number(item.quantity || 0)
-    const c = Number(item.unit_cost || 0)
-    return sum + q * c
-  }, 0)
+const filteredRows = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return rows.value
+  return rows.value.filter(
+    (r) =>
+      r.name?.toLowerCase().includes(q) ||
+      r.sku?.toLowerCase().includes(q) ||
+      r.barcode?.toLowerCase().includes(q),
+  )
 })
 
-async function fetchProducts() {
+const lineTotal = computed(() => {
+  const q = Number(receiptForm.quantity || 0)
+  const c = Number(receiptForm.unit_cost || 0)
+  return q * c
+})
+
+function focusHardwareScan() {
+  if (modalOpen.value || scannerOpen.value) return
+  nextTick(() => hardwareScanRef.value?.focus())
+}
+
+function processScanCode(raw) {
+  hardwareScanValue.value = ''
+  const product = findProductByScanCode(rows.value, raw)
+  if (product) {
+    openReceiptModal(product)
+    return true
+  }
+  apiError.value = tr('page.receipt.scanNotFound', {
+    code: normalizeScanCode(raw) || raw,
+  })
+  focusHardwareScan()
+  return false
+}
+
+function openScanner() {
+  apiError.value = ''
+  scannerOpen.value = true
+}
+
+function onScanned(value) {
+  scannerOpen.value = false
+  processScanCode(value)
+}
+
+function onHardwareScanEnter() {
+  const value = hardwareScanValue.value
+  hardwareScanValue.value = ''
+  if (value.trim()) {
+    processScanCode(value)
+  }
+  focusHardwareScan()
+}
+
+useHardwareBarcodeScanner({
+  onScan: (code) => processScanCode(code),
+  isActive: () => !modalOpen.value && !scannerOpen.value && !loading.value,
+})
+
+async function fetchData() {
   loading.value = true
+  apiError.value = ''
   try {
-    productList.value = await productsApi.list()
+    const branchId = branchFilter.value || org.currentBranchId
+    const [pList, cList, stockData] = await Promise.all([
+      productsApi.list(),
+      categories.list(),
+      branchId
+        ? stockLevels.list({ branch: branchId })
+        : Promise.resolve({ results: [], summary: {} }),
+    ])
+
+    const catMap = Object.fromEntries((cList || []).map((c) => [c.id, c.name]))
+    const stockByProduct = {}
+    for (const row of stockData.results || []) {
+      stockByProduct[row.product] = row
+    }
+
+    const merged = (pList || []).map((p) => {
+      const stock = stockByProduct[p.id]
+      return {
+        ...p,
+        _categoryName: catMap[p.category] || '—',
+        _stockQty: Number(stock?.quantity ?? 0),
+        _stockLow: Boolean(stock?.is_low),
+      }
+    })
+
+    rows.value = sortProductsForDisplay(await attachCachedImagesToProducts(merged))
+  } catch (error) {
+    const data = error?.response?.data
+    apiError.value = data?.detail || tr('page.receipt.loadError')
   } finally {
     loading.value = false
   }
 }
 
-function addLine() {
-  form.items.push(createLine())
+function openReceiptModal(row) {
+  selectedProduct.value = row
+  receiptForm.branch = branchFilter.value || String(org.currentBranchId || '')
+  receiptForm.quantity = '1'
+  receiptForm.unit_cost = String(row.cost_price ?? 0)
+  receiptForm.note = ''
+  apiError.value = ''
+  successMsg.value = ''
+  modalOpen.value = true
+  nextTick(() => {
+    qtyInputRef.value?.focus()
+    qtyInputRef.value?.select?.()
+  })
 }
 
-function removeLine(index) {
-  if (form.items.length === 1) {
-    form.items[0] = createLine()
-    return
-  }
-  form.items.splice(index, 1)
+function closeModal() {
+  modalOpen.value = false
+  selectedProduct.value = null
+  focusHardwareScan()
 }
 
-function getUnit(productId) {
-  const p = productMap.value[productId]
-  if (!p) return ''
-  return {
-    piece: 'dona',
-    kg: 'kg',
-    liter: 'litr',
-    pack: 'paket',
-  }[p.unit] || ''
+function getUnitLabel(product) {
+  if (!product) return ''
+  return unitOptions.value.find((u) => u.value === product.unit)?.label || product.unit || ''
 }
 
-async function submit() {
+async function submitReceipt() {
   apiError.value = ''
   successMsg.value = ''
 
-  if (!form.branch) {
-    apiError.value = 'Filialni tanlang.'
+  if (!selectedProduct.value) return
+  if (!receiptForm.branch) {
+    apiError.value = tr('page.receipt.branchRequired')
     return
   }
-  const validItems = form.items.filter((i) => i.product && Number(i.quantity) > 0)
-  if (validItems.length === 0) {
-    apiError.value = 'Hech bo‘lmaganda bitta mahsulot kiriting.'
+  if (Number(receiptForm.quantity) <= 0) {
+    apiError.value = tr('page.receipt.qtyRequired')
     return
   }
 
   saving.value = true
   try {
-    const payload = {
-      branch: Number(form.branch),
-      note: form.note,
-      items: validItems.map((i) => ({
-        product: Number(i.product),
-        quantity: i.quantity,
-        unit_cost: i.unit_cost || 0,
-      })),
-    }
-    const res = await stockMovements.bulkIn(payload)
-    successMsg.value = `Muvaffaqiyatli kirim qilindi: ${res.created} ta qator`
-    form.items = [createLine()]
-    form.note = ''
+    await stockMovements.create({
+      branch: Number(receiptForm.branch),
+      product: Number(selectedProduct.value.id),
+      movement_type: 'in',
+      quantity: receiptForm.quantity,
+      unit_cost: receiptForm.unit_cost || 0,
+      note: receiptForm.note.trim(),
+    })
+    successMsg.value = tr('page.receipt.success', { name: selectedProduct.value.name })
+    closeModal()
+    await fetchData()
+    focusHardwareScan()
   } catch (error) {
     const data = error?.response?.data
     apiError.value =
       data?.detail ||
-      (typeof data === 'object' ? JSON.stringify(data) : '') ||
-      'Kirim qilishda xatolik.'
+      (typeof data === 'object' ? Object.values(data).flat().join(' ') : '') ||
+      tr('page.receipt.saveError')
   } finally {
     saving.value = false
   }
 }
 
-onMounted(async () => {
-  await fetchProducts()
-  if (org.currentBranchId) form.branch = String(org.currentBranchId)
-})
-
-function resetForm() {
-  apiError.value = ''
-  successMsg.value = ''
-  form.note = ''
-  form.items = [createLine()]
-  if (org.currentBranchId) form.branch = String(org.currentBranchId)
-  else form.branch = ''
-}
-
-/** Sotuvchi — kassaga; boshqaruvchi — qoldiqlar ro‘yxatiga. */
 function leaveReceipt() {
   if (auth.isSeller) {
     router.push(routeWithPosShell('/app/pos'))
@@ -143,6 +267,33 @@ function leaveReceipt() {
   }
   router.push('/app/inventory')
 }
+
+watch(
+  () => org.currentBranchId,
+  (id) => {
+    if (id && !branchFilter.value) {
+      branchFilter.value = String(id)
+    }
+  },
+)
+
+watch(branchFilter, () => {
+  if (branchFilter.value) fetchData()
+})
+
+onMounted(async () => {
+  if (org.currentBranchId) branchFilter.value = String(org.currentBranchId)
+  await fetchData()
+  focusHardwareScan()
+})
+
+watch(modalOpen, (open) => {
+  if (!open) focusHardwareScan()
+})
+
+watch(scannerOpen, (open) => {
+  if (!open) focusHardwareScan()
+})
 </script>
 
 <template>
@@ -155,249 +306,323 @@ function leaveReceipt() {
       </template>
     </PageHeader>
 
-    <form class="receipt-form" @submit.prevent="submit">
-      <div class="card head-card">
+    <p v-if="successMsg" class="form-message form-message--success receipt-view__banner">
+      {{ successMsg }}
+    </p>
+    <p v-if="apiError && !loading && !modalOpen" class="form-message form-message--error receipt-view__banner">
+      {{ apiError }}
+    </p>
+
+    <!-- Skaner aparat: ko‘rinmas fokus (USB/Bluetooth klaviatura rejimi) -->
+    <input
+      v-show="!modalOpen && !scannerOpen"
+      ref="hardwareScanRef"
+      v-model="hardwareScanValue"
+      type="text"
+      class="receipt-hardware-scan-sink"
+      data-hardware-scan="1"
+      autocomplete="off"
+      tabindex="-1"
+      aria-hidden="true"
+      @keydown.enter.prevent="onHardwareScanEnter"
+    />
+
+    <div class="products-view__toolbar card">
+      <select v-model="branchFilter" class="products-view__filter-select">
+        <option value="" disabled>{{ tr('page.receipt.selectBranch') }}</option>
+        <option v-for="b in org.branches" :key="b.id" :value="String(b.id)">
+          {{ branchLabel(b) }}
+        </option>
+      </select>
+      <div class="products-view__search-wrap">
+        <span class="products-view__search-icon" aria-hidden="true">⌕</span>
+        <input
+          v-model="search"
+          class="products-view__search"
+          type="search"
+          :placeholder="tr('page.products.searchPlaceholder')"
+        />
+      </div>
+      <button
+        type="button"
+        class="btn btn--ghost products-view__scan"
+        :title="tr('page.receipt.scanTitle')"
+        @click="openScanner"
+      >
+        <span aria-hidden="true">▣</span>
+        {{ tr('page.products.btnScanner') }}
+      </button>
+    </div>
+
+    <p class="receipt-view__hint">{{ tr('page.receipt.rowHint') }}</p>
+
+    <div class="products-view__table card">
+      <DataTable
+        :columns="columns"
+        :rows="filteredRows"
+        :loading="loading"
+        clickable
+        actions-label=""
+        :empty-text="tr('page.receipt.emptyTable')"
+        @row-click="openReceiptModal"
+      >
+        <template #cell:image_url="{ row }">
+          <div class="products-view__thumb-wrap">
+            <img
+              v-if="productRowHasImage(row)"
+              class="products-view__thumb"
+              :src="productRowImageSrc(row)"
+              :alt="row.name || ''"
+              loading="lazy"
+            />
+            <span v-else class="products-view__thumb--empty" aria-hidden="true">—</span>
+          </div>
+        </template>
+        <template #cell:name="{ row }">
+          <div class="products-view__name-cell">
+            <span class="products-view__name-primary">{{ row.name || '—' }}</span>
+            <span class="receipt-view__tap-hint">{{ tr('page.receipt.tapKirim') }}</span>
+          </div>
+        </template>
+        <template #cell:_stockQty="{ row }">
+          <span
+            class="products-view__stock"
+            :class="{ 'products-view__stock--low': row._stockLow }"
+          >
+            {{ branchFilter ? formatStockQty(row) : '—' }}
+          </span>
+        </template>
+      </DataTable>
+    </div>
+
+    <AppModal
+      :open="modalOpen"
+      :title="selectedProduct ? tr('page.receipt.modalTitle', { name: selectedProduct.name }) : tr('page.receipt.title')"
+      width="520px"
+      @close="closeModal"
+    >
+      <form v-if="selectedProduct" class="receipt-modal-form" @submit.prevent="submitReceipt">
+        <div class="receipt-modal-form__product card">
+          <div class="receipt-modal-form__product-name">{{ selectedProduct.name }}</div>
+          <div class="receipt-modal-form__meta">
+            <span v-if="selectedProduct.sku">SKU: {{ selectedProduct.sku }}</span>
+            <span>
+              {{ tr('page.products.colStock') }}:
+              {{ formatStockQty(selectedProduct) }}
+            </span>
+          </div>
+        </div>
+
         <label class="field">
-          <span>Qaysi filialga? <i class="required">*</i></span>
-          <select v-model="form.branch" required>
-            <option value="" disabled>— Filial tanlang —</option>
-            <option v-for="b in org.branches" :key="b.id" :value="b.id">{{ b.name }}</option>
+          <span>{{ tr('page.receipt.branchLabel') }} <i class="required">*</i></span>
+          <select v-model="receiptForm.branch" required>
+            <option value="" disabled>—</option>
+            <option v-for="b in org.branches" :key="b.id" :value="String(b.id)">
+              {{ branchLabel(b) }}
+            </option>
           </select>
         </label>
+
+        <div class="receipt-modal-form__row">
+          <label class="field">
+            <span>
+              {{ tr('page.receipt.qtyLabel') }}
+              <small>({{ getUnitLabel(selectedProduct) }})</small>
+              <i class="required">*</i>
+            </span>
+            <input
+              ref="qtyInputRef"
+              v-model="receiptForm.quantity"
+              type="number"
+              min="0.001"
+              step="0.001"
+              required
+            />
+          </label>
+          <label class="field">
+            <span>{{ tr('page.receipt.costLabel') }}</span>
+            <input v-model="receiptForm.unit_cost" type="number" min="0" step="0.01" />
+          </label>
+        </div>
+
+        <div class="receipt-modal-form__total">
+          <span>{{ tr('page.receipt.lineTotal') }}</span>
+          <strong>
+            {{ lineTotal.toLocaleString(numberLocale(), { maximumFractionDigits: 2 }) }} so‘m
+          </strong>
+        </div>
+
         <label class="field">
-          <span>Izoh (ixtiyoriy)</span>
+          <span>{{ tr('page.receipt.noteLabel') }}</span>
           <input
-            v-model.trim="form.note"
+            v-model.trim="receiptForm.note"
             type="text"
             maxlength="255"
-            placeholder="Masalan, Yetkazib beruvchi nomi yoki invoice raqami"
+            :placeholder="tr('page.receipt.notePlaceholder')"
           />
         </label>
-      </div>
 
-      <div class="card">
-        <div class="receipt-head">
-          <h3>Mahsulotlar</h3>
-          <button type="button" class="btn btn--ghost btn--sm" @click="addLine">+ Qator</button>
+        <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
+      </form>
+
+      <template #footer>
+        <div class="receipt-modal-form__footer">
+          <button type="button" class="btn btn--ghost" @click="closeModal">
+            {{ tr('page.receipt.cancel') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn--primary"
+            :disabled="saving"
+            @click="submitReceipt"
+          >
+            {{ saving ? tr('page.receipt.saving') : tr('page.receipt.save') }}
+          </button>
         </div>
+      </template>
+    </AppModal>
 
-        <div v-if="loading" class="data-table__placeholder">Yuklanmoqda...</div>
-        <div v-else-if="productList.length === 0" class="data-table__placeholder">
-          Avval katalogga mahsulot qo‘shing.
-          <RouterLink to="/app/products">Mahsulotlar sahifasi →</RouterLink>
-        </div>
-
-        <div v-else class="receipt-lines">
-          <div v-for="(line, idx) in form.items" :key="idx" class="receipt-line">
-            <div class="receipt-line__num">{{ idx + 1 }}</div>
-
-            <label class="field field--grow">
-              <span>Mahsulot</span>
-              <select v-model="line.product">
-                <option value="" disabled>— Tanlang —</option>
-                <option v-for="p in productList" :key="p.id" :value="p.id">
-                  {{ p.name }}{{ p.sku ? ` · ${p.sku}` : '' }}
-                </option>
-              </select>
-            </label>
-
-            <label class="field field--qty">
-              <span>Miqdor <small>({{ getUnit(line.product) || '—' }})</small></span>
-              <input v-model="line.quantity" type="number" min="0.001" step="0.001" />
-            </label>
-
-            <label class="field field--price">
-              <span>Tannarx (so‘m)</span>
-              <input v-model="line.unit_cost" type="number" min="0" step="0.01" />
-            </label>
-
-            <div class="field field--total">
-              <span>Jami</span>
-              <strong>
-                {{
-                  (Number(line.quantity || 0) * Number(line.unit_cost || 0)).toLocaleString(
-                    'uz-UZ',
-                    { maximumFractionDigits: 2 },
-                  )
-                }}
-              </strong>
-            </div>
-
-            <button
-              type="button"
-              class="icon-btn icon-btn--danger receipt-line__remove"
-              @click="removeLine(idx)"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-
-        <div class="receipt-foot">
-          <div class="receipt-foot__total">
-            <span>Umumiy summa:</span>
-            <strong>{{ totalCost.toLocaleString('uz-UZ', { maximumFractionDigits: 2 }) }} so‘m</strong>
-          </div>
-        </div>
-      </div>
-
-      <p v-if="apiError" class="form-message form-message--error">{{ apiError }}</p>
-      <p v-if="successMsg" class="form-message form-message--success">{{ successMsg }}</p>
-
-      <div class="form-actions">
-        <button type="button" class="btn btn--ghost" @click="resetForm">
-          Bekor qilish
-        </button>
-        <button type="submit" class="btn btn--primary" :disabled="saving">
-          {{ saving ? 'Saqlanmoqda...' : 'Kirimni saqlash' }}
-        </button>
-      </div>
-    </form>
+    <BarcodeScanner
+      :open="scannerOpen"
+      :title="tr('page.receipt.scanTitle')"
+      @close="scannerOpen = false"
+      @scanned="onScanned"
+    />
   </div>
 </template>
 
 <style scoped>
-.receipt-form {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  width: 100%;
+.receipt-view__banner {
+  margin: 0 0 12px;
 }
 
-.receipt-form > .card {
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.head-card {
-  display: grid;
-  grid-template-columns: 1fr 1.5fr;
-  gap: 14px;
-  padding: 14px 18px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-}
-
-.receipt-form > .card:not(.head-card) {
+.receipt-hardware-scan-sink {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
   padding: 0;
-  overflow: hidden;
-  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
-}
-
-.receipt-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
-}
-
-.receipt-head h3 {
+  border: 0;
   margin: 0;
-  font-size: 1rem;
 }
 
-.receipt-lines {
-  display: flex;
-  flex-direction: column;
-}
-
-.receipt-line {
-  display: grid;
-  grid-template-columns: 32px 2fr 0.8fr 1fr 1fr 36px;
-  gap: 10px;
-  padding: 12px 16px;
-  align-items: end;
-  border-bottom: 1px solid var(--line);
-}
-
-.receipt-line:last-child {
-  border-bottom: 0;
-}
-
-.receipt-line__num {
-  font-weight: 600;
-  color: var(--text-muted);
-  padding-bottom: 10px;
-}
-
-.field--grow {
-  min-width: 0;
-}
-
-.field--total {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-bottom: 8px;
-  text-align: right;
-}
-
-.field--total span {
-  font-size: 0.78rem;
+.receipt-view__hint {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
   color: var(--text-muted);
 }
 
-.receipt-line__remove {
-  align-self: end;
-  margin-bottom: 4px;
+.products-view__scan {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.receipt-foot {
+.receipt-view__tap-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.receipt-modal-form {
   display: flex;
-  justify-content: flex-end;
-  padding: 14px 16px;
-  border-top: 1px solid var(--line);
+  flex-direction: column;
+  gap: 14px;
+}
+
+.receipt-modal-form__product {
+  padding: 12px 14px;
   background: var(--surface-soft);
 }
 
-.receipt-foot__total {
-  font-size: 1rem;
+.receipt-modal-form__product-name {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.receipt-modal-form__meta {
   display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.receipt-modal-form__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
-  align-items: center;
 }
 
-.receipt-foot__total strong {
-  font-size: 1.2rem;
-  color: var(--text);
-}
-
-.form-actions {
+.receipt-modal-form__total {
   display: flex;
-  gap: 10px;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  font-size: 0.95rem;
 }
 
-@media (max-width: 720px) {
-  .head-card {
+.receipt-modal-form__total strong {
+  font-size: 1.1rem;
+}
+
+.receipt-modal-form__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  width: 100%;
+}
+
+.products-view__thumb-wrap {
+  width: 48px;
+  height: 48px;
+}
+
+.products-view__thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.products-view__thumb--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.products-view__name-cell {
+  min-width: 0;
+}
+
+.products-view__name-primary {
+  display: block;
+  font-weight: 500;
+}
+
+.products-view__stock {
+  font-weight: 500;
+}
+
+.products-view__stock--low {
+  color: var(--danger, #b1442b);
+}
+
+@media (max-width: 560px) {
+  .receipt-modal-form__row {
     grid-template-columns: 1fr;
-  }
-  .receipt-line {
-    grid-template-columns: 32px 1fr 36px;
-    grid-template-areas:
-      'num product remove'
-      '. qty qty'
-      '. price price'
-      '. total total';
-  }
-  .receipt-line__num {
-    grid-area: num;
-  }
-  .receipt-line .field--grow {
-    grid-area: product;
-  }
-  .receipt-line .field--qty {
-    grid-area: qty;
-  }
-  .receipt-line .field--price {
-    grid-area: price;
-  }
-  .receipt-line .field--total {
-    grid-area: total;
-    text-align: left;
-  }
-  .receipt-line__remove {
-    grid-area: remove;
   }
 }
 </style>

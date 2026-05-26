@@ -1,11 +1,13 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
 import AppPreferencesBar from '../../components/AppPreferencesBar.vue'
 import BrandLogo from '../../components/BrandLogo.vue'
+import { useHardwareBarcodeScanner } from '../../composables/useHardwareBarcodeScanner'
 import { numberLocaleForUi, useI18n } from '../../i18n'
+import { findProductByScanCode, normalizeScanCode } from '../../lib/barcodeScan'
 import { formatQuantity } from '../../lib/formatQuantity'
 import { localDateTimeIso } from '../../lib/localDateTime'
 import { routeWithPosShell } from '../../posShellQuery'
@@ -50,6 +52,8 @@ const apiError = ref('')
 const lastReceipt = ref(null)
 const receiptOpen = ref(false)
 const scanFlash = ref('')
+const hardwareScanRef = ref(null)
+const hardwareScanValue = ref('')
 const chipRowEl = ref(null)
 /** `grid` — ixcham kataklar; `comfort` — kattaroq kartalar. */
 const productLayout = ref('grid')
@@ -283,6 +287,45 @@ function flashScan(msg, ms = 2000) {
     scanFlash.value = ''
   }, ms)
 }
+
+function scannerCaptureActive() {
+  return !paymentOpen.value && !receiptOpen.value && !loading.value && !submitting.value
+}
+
+function focusHardwareScan() {
+  if (!scannerCaptureActive()) return
+  nextTick(() => hardwareScanRef.value?.focus())
+}
+
+function processScanCode(raw) {
+  hardwareScanValue.value = ''
+  const product = findProductByScanCode(productList.value, raw)
+  if (!product) {
+    flashScan(tr('pos.err.scanNotFound', { code: normalizeScanCode(raw) || raw }))
+    focusHardwareScan()
+    return
+  }
+  const added = addToCart(product)
+  if (added) {
+    flashScan(tr('pos.scanAdded', { name: product.name }))
+  }
+  focusHardwareScan()
+}
+
+function onHardwareScanEnter() {
+  const value = hardwareScanValue.value
+  hardwareScanValue.value = ''
+  if (value.trim()) {
+    processScanCode(value)
+  } else {
+    focusHardwareScan()
+  }
+}
+
+useHardwareBarcodeScanner({
+  onScan: (code) => processScanCode(code),
+  isActive: scannerCaptureActive,
+})
 
 function addToCart(product) {
   const offline = isOfflineMode()
@@ -752,6 +795,7 @@ onMounted(async () => {
   await hydrateAuthFromOfflineSnapshot(auth)
   await hydrateOrganizationStore(org)
   await fetchAll()
+  focusHardwareScan()
   unsubscribeConnectivity = onConnectivityChange((offline) => {
     onSavdoproConnectivity(offline)
   })
@@ -759,6 +803,14 @@ onMounted(async () => {
   window.addEventListener('online', onBrowserConnectivityChange)
   window.addEventListener('offline', onBrowserConnectivityChange)
   window.addEventListener('savdopro:sync-complete', onSyncComplete)
+})
+
+watch(paymentOpen, (open) => {
+  if (!open) focusHardwareScan()
+})
+
+watch(receiptOpen, (open) => {
+  if (!open) focusHardwareScan()
 })
 
 onUnmounted(() => {
@@ -772,6 +824,18 @@ onUnmounted(() => {
 
 <template>
   <div class="pos-view">
+    <input
+      ref="hardwareScanRef"
+      v-model="hardwareScanValue"
+      type="text"
+      class="pos-hardware-scan-sink"
+      data-hardware-scan="1"
+      autocomplete="off"
+      tabindex="-1"
+      aria-hidden="true"
+      @keydown.enter.prevent="onHardwareScanEnter"
+    />
+
     <header class="pos-topbar">
       <div class="pos-topbar__brand">
         <h1 class="pos-topbar__title">{{ tr('pos.pageTitle') }}</h1>
@@ -782,6 +846,10 @@ onUnmounted(() => {
     <div v-if="pendingSalesCount > 0" class="pos-offline-banner" role="status">
       {{ tr('pos.offlineBanner', { n: pendingSalesCount }) }}
     </div>
+
+    <Transition name="scan-toast">
+      <div v-if="scanFlash" class="pos-scan-toast" role="status">{{ scanFlash }}</div>
+    </Transition>
 
     <div class="pos-dashboard">
       <div class="pos-mid">
@@ -839,10 +907,6 @@ onUnmounted(() => {
         </aside>
 
         <section class="pos-catalog pos-panel">
-          <Transition name="fade">
-            <div v-if="scanFlash" class="scan-flash">{{ scanFlash }}</div>
-          </Transition>
-
           <div class="pos-catalog-tools">
             <div class="pos-catalog-tools__top">
               <div class="pos-search-wrap pos-search-wrap--toolbar">
@@ -1236,6 +1300,18 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.pos-hardware-scan-sink {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  padding: 0;
+  border: 0;
+  margin: 0;
+}
+
 .pos-view {
   /* Yorug‘ kassa — asosiy ilova bilan uyg‘un */
   --pv-bg: #f1f5f9;
@@ -1558,14 +1634,42 @@ onUnmounted(() => {
   color: #fff;
 }
 
-.scan-flash {
+.pos-scan-toast {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  max-width: min(92vw, 420px);
+  padding: 12px 20px;
+  border-radius: 12px;
   background: linear-gradient(135deg, var(--pv-accent-dark) 0%, var(--pv-accent) 100%);
   color: #fff;
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 600;
   text-align: center;
-  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
+  line-height: 1.35;
+  box-shadow: 0 10px 32px rgba(37, 99, 235, 0.4);
+  pointer-events: none;
+}
+
+.scan-toast-enter-active,
+.scan-toast-leave-active {
+  transition:
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.28s ease;
+}
+
+.scan-toast-enter-from,
+.scan-toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -120%);
+}
+
+.scan-toast-enter-to,
+.scan-toast-leave-from {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .product-grid {

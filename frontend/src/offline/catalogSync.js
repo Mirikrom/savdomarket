@@ -58,10 +58,6 @@ export async function syncCatalogToIndexedDB(organizationId, branchId) {
   const now = Date.now()
   const activeProducts = filterActiveProducts(pList)
 
-  if (activeProducts.length === 0) {
-    return false
-  }
-
   const productRows = activeProducts.map((p) =>
     toPlainJson({
       ...p,
@@ -69,6 +65,18 @@ export async function syncCatalogToIndexedDB(organizationId, branchId) {
       organization: orgId,
     })
   )
+
+  if (activeProducts.length === 0) {
+    await savdoDb.transaction('rw', savdoDb.products, savdoDb.meta, async () => {
+      const existing = await savdoDb.products.toArray()
+      for (const row of existing) {
+        if (!productMatchesOrg(row, orgId)) continue
+        await savdoDb.products.delete(row.id)
+      }
+      await setMeta(catalogMetaKey(orgId), [])
+    })
+    return true
+  }
   const categoryRows = (cList || []).map((c) => toPlainJson({ ...c, organizationId: orgId }))
   const newIds = new Set(activeProducts.map((p) => p.id))
   const guard = await getPendingCatalogGuardIds()
@@ -198,9 +206,17 @@ export async function purgeOfflineCatalogOtherOrgs(keepOrganizationId) {
   }
 }
 
-export async function loadCatalogFromIndexedDB(organizationId, branchId) {
+export async function loadCatalogFromIndexedDB(organizationId, branchId, { refreshFromApi = false } = {}) {
   const orgId = normalizeOrgId(organizationId)
   const bid = branchId != null ? normalizeOrgId(branchId) : null
+
+  if (orgId && bid && refreshFromApi && !isOfflineMode()) {
+    try {
+      await syncCatalogToIndexedDB(orgId, bid)
+    } catch (err) {
+      console.warn('[catalog] serverdan yangilab bo‘lmadi:', err)
+    }
+  }
 
   if (orgId) {
     await pruneStaleOfflineCatalog(orgId)
@@ -252,6 +268,19 @@ export async function loadCatalogFromIndexedDB(organizationId, branchId) {
     hasCache,
     syncedAt: meta?.at || null,
   }
+}
+
+/** Faqat filial qoldig‘i — mahsulot ro‘yxatini almashtirmaydi (API dan yangi ro‘yxat saqlanadi). */
+export async function loadStockMapFromIndexedDB(branchId) {
+  const bid = normalizeOrgId(branchId)
+  if (!bid) return {}
+
+  const stockMap = {}
+  const stockRows = await savdoDb.stockLevels.where('branchId').equals(bid).toArray()
+  for (const row of stockRows) {
+    stockMap[row.productId] = Number(row.quantity || 0)
+  }
+  return stockMap
 }
 
 export async function applyLocalStockDeduction(branchId, items) {
