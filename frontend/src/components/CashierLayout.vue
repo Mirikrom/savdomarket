@@ -91,6 +91,10 @@ function toggleExtraNav() {
 
 onMounted(async () => {
   document.documentElement.classList.add('pos-shell-lock')
+  if (auth.loaded && org.organization?.id) {
+    isLoading.value = false
+    return
+  }
   try {
     const { bootAuthenticatedApp } = await import('../offline/sessionBootstrap')
     const result = await bootAuthenticatedApp(auth, org)
@@ -316,7 +320,11 @@ async function logout() {
             <span>{{ tr('posShell.loading') }}</span>
           </div>
           <div v-else class="pos-content__view">
-            <RouterView />
+            <RouterView v-slot="{ Component }">
+              <KeepAlive :max="8">
+                <component :is="Component" v-if="Component" />
+              </KeepAlive>
+            </RouterView>
           </div>
         </div>
       </main>

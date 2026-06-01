@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
@@ -96,9 +96,11 @@ function productSyncIconKind(status) {
   return 'pending'
 }
 
-const loading = ref(true)
+const loading = ref(false)
 /** Jadvalda ma’lumot bir marta chiqgach, qayta «Yuklanmoqda» ko‘rsatilmaydi. */
 const hasDisplayedProducts = ref(false)
+/** Kesh yangi bo‘lsa API kutmasdan fon yangilash. */
+const CATALOG_FRESH_MS = 120_000
 const isOnline = ref(!isOfflineMode())
 const catalogOffline = ref(false)
 const modalOpen = ref(false)
@@ -278,6 +280,9 @@ const displayRows = computed(() =>
   }),
 )
 
+/** Ma’lumot chiqgach jadval yana «Yuklanmoqda» bilan yashirilmaydi. */
+const tableLoading = computed(() => loading.value && displayRows.value.length === 0)
+
 const pendingProductsCount = computed(() => {
   const { pendingCreateIds, pendingUpdateIds } = pendingSyncMap.value
   return pendingCreateIds.size + pendingUpdateIds.size
@@ -333,21 +338,27 @@ function applyStockMapFromQuantities(productRows, quantityByProductId = {}) {
   stockMap.value = map
 }
 
+function isCatalogCacheFresh(syncedAt) {
+  return Boolean(syncedAt && Date.now() - syncedAt < CATALOG_FRESH_MS)
+}
+
 async function loadFromIndexedDBCache({ skipPrune = false } = {}) {
   await hydrateOrganizationStore(org)
   const { orgId, branchId } = await resolvePosIds(org)
-  if (!orgId) return false
+  if (!orgId) return { hadCache: false, syncedAt: null }
 
   const cached = await loadCatalogFromIndexedDB(orgId, branchId, {
     refreshFromApi: false,
     skipPrune,
   })
-  if (!cached.hasCache && !cached.products?.length) return false
+  if (!cached.hasCache && !cached.products?.length) {
+    return { hadCache: false, syncedAt: cached.syncedAt ?? null }
+  }
 
   rows.value = sortProductsForDisplay(cached.products)
   categoryList.value = cached.categories
   applyStockMapFromQuantities(cached.products, cached.stockMap)
-  return true
+  return { hadCache: true, syncedAt: cached.syncedAt ?? null }
 }
 
 function applyStockFromApiResponse(stockData) {
@@ -437,42 +448,8 @@ function productIdsSignature(list) {
   return list.map((p) => p.id).join(',')
 }
 
-async function fetchData({ background = false } = {}) {
-  if (fetchInFlight) return fetchInFlight
-
-  fetchInFlight = (async () => {
-  const hadRows = rows.value.length > 0
-  if (!background && !hadRows && !hasDisplayedProducts.value) {
-    setTableLoading(true)
-  }
-  apiError.value = ''
-
-  if (auth.organizationId) {
-    localStorage.setItem('organization_id', String(auth.organizationId))
-  }
-
-  const [, { orgId, branchId }] = await Promise.all([
-    refreshPendingSyncState(),
-    hydrateOrganizationStore(org).then(() => resolvePosIds(org)),
-  ])
-
-  const hadCache = await loadFromIndexedDBCache({ skipPrune: true })
-  if (hadCache || hadRows) {
-    markProductsDisplayed()
-    attachProductImagesOnce()
-  }
-
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    isOnline.value = false
-    catalogOffline.value = hadCache || rows.value.length > 0
-    if (!rows.value.length) {
-      apiError.value =
-        'Offline rejim — mahsulotlar keshda yo‘q. Avval backend yoqilgan holda Kassa yoki shu sahifani oching.'
-    }
-    markProductsDisplayed()
-    return
-  }
-
+async function refreshCatalogFromApi() {
+  const { orgId, branchId } = await resolvePosIds(org)
   const reachabilityPromise = checkApiReachable()
   if (orgId) {
     pruneStaleOfflineCatalog(orgId).catch(() => {})
@@ -497,7 +474,7 @@ async function fetchData({ background = false } = {}) {
 
     if (!ok) {
       if (!rows.value.length) {
-        const restored = await loadFromIndexedDBCache()
+        const { hadCache: restored } = await loadFromIndexedDBCache()
         catalogOffline.value = restored || rows.value.length > 0
         if (!rows.value.length) {
           apiError.value =
@@ -534,7 +511,7 @@ async function fetchData({ background = false } = {}) {
   } catch (err) {
     console.warn('[products] yuklash:', err)
     if (!rows.value.length) {
-      const restored = await loadFromIndexedDBCache()
+      const { hadCache: restored } = await loadFromIndexedDBCache()
       catalogOffline.value = restored || rows.value.length > 0
       isOnline.value = false
       if (!rows.value.length) {
@@ -543,6 +520,50 @@ async function fetchData({ background = false } = {}) {
     }
     markProductsDisplayed()
   }
+}
+
+async function fetchData({ background = false } = {}) {
+  if (fetchInFlight) return fetchInFlight
+
+  fetchInFlight = (async () => {
+    apiError.value = ''
+
+    if (auth.organizationId) {
+      localStorage.setItem('organization_id', String(auth.organizationId))
+    }
+
+    await Promise.all([
+      refreshPendingSyncState(),
+      hydrateOrganizationStore(org),
+    ])
+
+    const cacheLoad = await loadFromIndexedDBCache({ skipPrune: true })
+    if (cacheLoad.hadCache) {
+      markProductsDisplayed()
+      attachProductImagesOnce()
+    } else if (!background && !hasDisplayedProducts.value && !rows.value.length) {
+      setTableLoading(true)
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      isOnline.value = false
+      catalogOffline.value = cacheLoad.hadCache || rows.value.length > 0
+      if (!rows.value.length) {
+        apiError.value =
+          'Offline rejim — mahsulotlar keshda yo‘q. Avval backend yoqilgan holda Kassa yoki shu sahifani oching.'
+      }
+      markProductsDisplayed()
+      return
+    }
+
+    if (cacheLoad.hadCache && isCatalogCacheFresh(cacheLoad.syncedAt) && !background) {
+      refreshCatalogFromApi().catch((err) => {
+        console.warn('[products] fon yangilash:', err)
+      })
+      return
+    }
+
+    await refreshCatalogFromApi()
   })().finally(() => {
     fetchInFlight = null
   })
@@ -860,7 +881,8 @@ let unsubscribeConnectivity = null
 async function onConnectivityChanged(offline, { skipFetch = false } = {}) {
   isOnline.value = !offline
   if (offline) {
-    catalogOffline.value = await loadFromIndexedDBCache()
+    const { hadCache } = await loadFromIndexedDBCache()
+    catalogOffline.value = hadCache || rows.value.length > 0
     return
   }
   if (skipFetch) return
@@ -876,8 +898,20 @@ function onSyncComplete() {
   refreshFromSyncEvent().catch(() => {})
 }
 
-onMounted(async () => {
-  await fetchData()
+let skipFirstActivatedFetch = false
+
+function loadProductsPage() {
+  if (rows.value.length || hasDisplayedProducts.value) {
+    markProductsDisplayed()
+    return fetchData({ background: true })
+  }
+  return fetchData()
+}
+
+onMounted(() => {
+  skipFirstActivatedFetch = true
+  loadProductsPage().catch(() => {})
+
   let skipInitialConnectivityFetch = true
   unsubscribeConnectivity = onConnectivityChange((offline) => {
     const skipFetch = skipInitialConnectivityFetch
@@ -885,6 +919,15 @@ onMounted(async () => {
     onConnectivityChanged(offline, { skipFetch })
   })
   window.addEventListener('savdopro:sync-complete', onSyncComplete)
+})
+
+/** Kassa tablarida KeepAlive — qayta kirganda fon yangilash. */
+onActivated(() => {
+  if (skipFirstActivatedFetch) {
+    skipFirstActivatedFetch = false
+    return
+  }
+  loadProductsPage().catch(() => {})
 })
 
 onUnmounted(() => {
@@ -913,7 +956,7 @@ onUnmounted(() => {
       </template>
     </PageHeader>
 
-    <p v-if="apiError && !loading" class="form-message form-message--error products-view__fetch-error">
+    <p v-if="apiError && !tableLoading" class="form-message form-message--error products-view__fetch-error">
       {{ apiError }}
     </p>
 
@@ -951,7 +994,7 @@ onUnmounted(() => {
       <DataTable
         :columns="columns"
         :rows="displayRows"
-        :loading="loading"
+        :loading="tableLoading"
         clickable
         actions-label=""
         :empty-text="tr('page.products.emptyTable')"
