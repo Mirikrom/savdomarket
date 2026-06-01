@@ -14,8 +14,7 @@ import {
 import { POS_SHELL_QUERY_KEY, POS_SHELL_QUERY_VALUE } from '../../posShellQuery'
 import {
   loadCatalogFromIndexedDB,
-  loadStockMapFromIndexedDB,
-  syncCatalogToIndexedDB,
+  persistCatalogToIndexedDB,
 } from '../../offline/catalogSync'
 import {
   attachCachedImagesToProducts,
@@ -38,7 +37,6 @@ import {
   resolveProductSyncStatus,
   syncOfflineMutations,
 } from '../../offline/offlineMutations'
-import { scheduleFullSync } from '../../offline/syncScheduler'
 import { useApiNotify } from '../../composables/useApiNotify'
 import { categories, products } from '../../services/catalog.service'
 import { stockLevels } from '../../services/inventory.service'
@@ -332,53 +330,36 @@ function applyStockMapFromQuantities(productRows, quantityByProductId = {}) {
   stockMap.value = map
 }
 
-async function loadFromIndexedDBCache() {
+async function loadFromIndexedDBCache({ skipPrune = false } = {}) {
   await hydrateOrganizationStore(org)
   const { orgId, branchId } = await resolvePosIds(org)
   if (!orgId) return false
 
   const cached = await loadCatalogFromIndexedDB(orgId, branchId, {
-    refreshFromApi: isOnline.value,
+    refreshFromApi: false,
+    skipPrune,
   })
-  if (!cached.hasCache) return false
+  if (!cached.hasCache && !cached.products?.length) return false
 
-  rows.value = sortProductsForDisplay(await attachCachedImagesToProducts(cached.products))
+  rows.value = sortProductsForDisplay(cached.products)
   categoryList.value = cached.categories
   applyStockMapFromQuantities(cached.products, cached.stockMap)
+  attachCachedImagesToProducts(rows.value).then((next) => {
+    rows.value = sortProductsForDisplay(next)
+  })
   return true
 }
 
-async function fetchStockMap() {
-  const branchId = org.currentBranchId
-  if (!branchId) {
-    stockMap.value = {}
-    return
-  }
-  if (isOfflineMode()) {
-    await loadFromIndexedDBCache()
-    return
-  }
-  try {
-    const data = await stockLevels.list({ branch: branchId })
-    const map = {}
-    for (const row of data.results || []) {
-      map[row.product] = {
-        quantity: Number(row.quantity ?? 0),
-        is_low: Boolean(row.is_low),
-        min_stock: Number(row.min_stock ?? 0),
-      }
-    }
-    stockMap.value = map
-  } catch {
-    try {
-      const cachedQty = await loadStockMapFromIndexedDB(branchId)
-      if (Object.keys(cachedQty).length) {
-        applyStockMapFromQuantities(rows.value, cachedQty)
-      }
-    } catch {
-      /* qoldiqni yangilab bo‘lmasa — mahsulot ro‘yxatini saqlab qolamiz */
+function applyStockFromApiResponse(stockData) {
+  const map = {}
+  for (const row of stockData?.results || []) {
+    map[row.product] = {
+      quantity: Number(row.quantity ?? 0),
+      is_low: Boolean(row.is_low),
+      min_stock: Number(row.min_stock ?? 0),
     }
   }
+  stockMap.value = map
 }
 
 function mergeCreatedProductRow(created) {
@@ -396,31 +377,36 @@ function mergeCreatedProductRow(created) {
   }
 }
 
-async function applyProductsList(pList) {
+function applyProductsList(pList) {
   if (!Array.isArray(pList)) {
     throw new Error('Mahsulotlar ro‘yxati noto‘g‘ri javob qaytardi')
   }
-  rows.value = sortProductsForDisplay(await attachCachedImagesToProducts(pList))
+  rows.value = sortProductsForDisplay(pList)
+  attachCachedImagesToProducts(rows.value).then((next) => {
+    rows.value = sortProductsForDisplay(next)
+  })
 }
 
 async function fetchData() {
   loading.value = true
   apiError.value = ''
-  await refreshPendingSyncState()
 
   if (auth.organizationId) {
     localStorage.setItem('organization_id', String(auth.organizationId))
   }
 
-  await hydrateOrganizationStore(org)
-  const { orgId, branchId } = await resolvePosIds(org)
-  if (orgId) await pruneStaleOfflineCatalog(orgId)
+  const [, { orgId, branchId }] = await Promise.all([
+    refreshPendingSyncState(),
+    hydrateOrganizationStore(org).then(() => resolvePosIds(org)),
+  ])
 
-  const ok = await checkApiReachable()
-  isOnline.value = ok
+  const hadCache = await loadFromIndexedDBCache({ skipPrune: true })
+  if (hadCache) {
+    loading.value = false
+  }
 
-  if (!ok) {
-    const hadCache = await loadFromIndexedDBCache()
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    isOnline.value = false
     catalogOffline.value = hadCache || rows.value.length > 0
     if (!rows.value.length) {
       apiError.value =
@@ -430,53 +416,65 @@ async function fetchData() {
     return
   }
 
-  let productsLoaded = false
+  const reachabilityPromise = checkApiReachable()
+  if (orgId) {
+    pruneStaleOfflineCatalog(orgId).catch(() => {})
+  }
+
+  const branchIdForStock = org.currentBranchId
 
   try {
-    await syncOfflineMutations().catch((err) => {
-      console.warn('[offline] kutilayotgan mahsulotlar sinxroni:', err)
-    })
+    const [, pList, cList, stockData] = await Promise.all([
+      syncOfflineMutations().catch((err) => {
+        console.warn('[offline] kutilayotgan mahsulotlar sinxroni:', err)
+      }),
+      products.list(),
+      categories.list(),
+      branchIdForStock
+        ? stockLevels.list({ branch: branchIdForStock })
+        : Promise.resolve({ results: [] }),
+    ])
 
-    try {
-      const pList = await products.list()
-      await applyProductsList(pList)
-      productsLoaded = true
-      catalogOffline.value = false
-    } catch (err) {
-      console.warn('[products] API ro‘yxat:', err)
+    const ok = await reachabilityPromise
+    isOnline.value = ok
+
+    if (!ok) {
       if (!rows.value.length) {
-        throw err
+        const restored = await loadFromIndexedDBCache()
+        catalogOffline.value = restored || rows.value.length > 0
+        if (!rows.value.length) {
+          apiError.value =
+            'Offline rejim — mahsulotlar keshda yo‘q. Avval backend yoqilgan holda Kassa yoki shu sahifani oching.'
+        }
+      } else {
+        catalogOffline.value = true
       }
+      loading.value = false
+      return
     }
 
-    try {
-      categoryList.value = await categories.list()
-    } catch (err) {
-      console.warn('[products] kategoriyalar:', err)
-    }
-
-    await fetchStockMap()
+    applyProductsList(pList)
+    categoryList.value = cList || []
+    applyStockFromApiResponse(stockData)
+    catalogOffline.value = false
+    loading.value = false
 
     if (orgId && branchId) {
-      await syncCatalogToIndexedDB(orgId, branchId).catch((err) => {
+      persistCatalogToIndexedDB(orgId, branchId, pList, cList, stockData).catch((err) => {
         console.warn('[catalog] kesh yangilash:', err)
       })
-      scheduleFullSync(orgId, branchId, {
-        branches: org.branches,
-        organization: org.organization,
-        force: false,
-      }).catch(() => {})
     }
 
     cacheProductImages(rows.value, { concurrency: 3 }).then((r) => {
       if (r.cached) {
         attachCachedImagesToProducts(rows.value).then((next) => {
-          rows.value = next
+          rows.value = sortProductsForDisplay(next)
         })
       }
     }).catch(() => {})
-  } catch {
-    if (!productsLoaded) {
+  } catch (err) {
+    console.warn('[products] yuklash:', err)
+    if (!rows.value.length) {
       const restored = await loadFromIndexedDBCache()
       catalogOffline.value = restored || rows.value.length > 0
       isOnline.value = false
@@ -484,7 +482,6 @@ async function fetchData() {
         apiError.value = 'Server bilan bog‘lanib bo‘lmadi va lokal kesh bo‘sh.'
       }
     }
-  } finally {
     loading.value = false
   }
 }
@@ -663,9 +660,6 @@ async function submit() {
     modalOpen.value = false
     filters.syncStatus = ''
     search.value = ''
-    if (orgId && branchId) {
-      await syncCatalogToIndexedDB(orgId, branchId).catch(() => {})
-    }
     await fetchData()
   } catch (error) {
     apiError.value = error?._notifyHandled

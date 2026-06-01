@@ -4,7 +4,9 @@ import { RouterLink } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
 import AppPreferencesBar from '../../components/AppPreferencesBar.vue'
+import BarcodeScanner from '../../components/BarcodeScanner.vue'
 import BrandLogo from '../../components/BrandLogo.vue'
+import MobileCameraScanFab from '../../components/MobileCameraScanFab.vue'
 import { useHardwareBarcodeScanner } from '../../composables/useHardwareBarcodeScanner'
 import { numberLocaleForUi, useI18n } from '../../i18n'
 import { findProductByScanCode, normalizeScanCode } from '../../lib/barcodeScan'
@@ -52,6 +54,7 @@ const apiError = ref('')
 const lastReceipt = ref(null)
 const receiptOpen = ref(false)
 const scanFlash = ref('')
+const scannerOpen = ref(false)
 const hardwareScanRef = ref(null)
 const hardwareScanValue = ref('')
 const chipRowEl = ref(null)
@@ -289,7 +292,23 @@ function flashScan(msg, ms = 2000) {
 }
 
 function scannerCaptureActive() {
-  return !paymentOpen.value && !receiptOpen.value && !loading.value && !submitting.value
+  return (
+    !paymentOpen.value &&
+    !receiptOpen.value &&
+    !loading.value &&
+    !submitting.value &&
+    !scannerOpen.value
+  )
+}
+
+function openCameraScanner() {
+  if (!scannerCaptureActive()) return
+  scannerOpen.value = true
+}
+
+function onCameraScanned(value) {
+  scannerOpen.value = false
+  processScanCode(value)
 }
 
 function focusHardwareScan() {
@@ -813,6 +832,10 @@ watch(receiptOpen, (open) => {
   if (!open) focusHardwareScan()
 })
 
+watch(scannerOpen, (open) => {
+  if (!open) focusHardwareScan()
+})
+
 onUnmounted(() => {
   unsubscribeConnectivity?.()
   window.removeEventListener('keydown', onKeydown)
@@ -1096,6 +1119,15 @@ onUnmounted(() => {
     <button class="pos-cart-toggle" type="button" @click="cartOpen = true">
       {{ tr('pos.cartToggle', { n: cart.items.length, total: formatMoney(total) }) }}
     </button>
+
+    <MobileCameraScanFab label-key="pos.scanCamera" @click="openCameraScanner" />
+
+    <BarcodeScanner
+      :open="scannerOpen"
+      :title="tr('pos.scanCameraTitle')"
+      @close="scannerOpen = false"
+      @scanned="onCameraScanned"
+    />
 
     <AppModal
       :open="paymentOpen"

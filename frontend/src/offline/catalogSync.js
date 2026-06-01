@@ -37,24 +37,17 @@ function filterActiveProducts(rows) {
   return rows.filter((p) => p.is_active !== false && !p.deleted_at)
 }
 
-export async function syncCatalogToIndexedDB(organizationId, branchId) {
-  if (isOfflineMode()) return false
-
+/** Serverdan olingan ro‘yxatni IndexedDB ga yozish (qayta fetch shart emas). */
+export async function persistCatalogToIndexedDB(organizationId, branchId, pList, cList, stockData) {
   const orgId = normalizeOrgId(organizationId)
   const bid = normalizeOrgId(branchId)
   if (!orgId || !bid) return false
-
-  const [pList, cList, stockData] = await Promise.all([
-    productsApi.list(),
-    categories.list(),
-    stockLevels.list({ branch: bid }),
-  ])
 
   if (!Array.isArray(pList)) {
     throw new Error('Mahsulotlar ro‘yxati noto‘g‘ri javob qaytardi')
   }
 
-  const stockRows = stockData?.results || []
+  const stockRows = stockData?.results || stockData || []
   const now = Date.now()
   const activeProducts = filterActiveProducts(pList)
 
@@ -68,7 +61,7 @@ export async function syncCatalogToIndexedDB(organizationId, branchId) {
 
   if (activeProducts.length === 0) {
     await savdoDb.transaction('rw', savdoDb.products, savdoDb.meta, async () => {
-      const existing = await savdoDb.products.toArray()
+      const existing = await savdoDb.products.where('organizationId').equals(orgId).toArray()
       for (const row of existing) {
         if (!productMatchesOrg(row, orgId)) continue
         await savdoDb.products.delete(row.id)
@@ -84,7 +77,7 @@ export async function syncCatalogToIndexedDB(organizationId, branchId) {
   await savdoDb.transaction('rw', savdoDb.products, savdoDb.categories, savdoDb.stockLevels, savdoDb.meta, async () => {
     await savdoDb.products.bulkPut(productRows)
 
-    const existing = await savdoDb.products.toArray()
+    const existing = await savdoDb.products.where('organizationId').equals(orgId).toArray()
     for (const row of existing) {
       if (!productMatchesOrg(row, orgId) || newIds.has(row.id)) continue
       if (isPendingCatalogProduct(row, guard)) continue
@@ -125,12 +118,12 @@ export async function syncCatalogToIndexedDB(organizationId, branchId) {
     })
   })
 
-  const pendingProducts = (await savdoDb.products.toArray()).filter(
-    (p) => productMatchesOrg(p, orgId) && isPendingCatalogProduct(p, guard)
-  )
-  const pendingCategories = (await savdoDb.categories.toArray()).filter(
-    (c) => Number(c.organizationId) === orgId && isPendingCatalogCategory(c, guard)
-  )
+  const pendingProducts = (
+    await savdoDb.products.where('organizationId').equals(orgId).toArray()
+  ).filter((p) => productMatchesOrg(p, orgId) && isPendingCatalogProduct(p, guard))
+  const pendingCategories = (
+    await savdoDb.categories.where('organizationId').equals(orgId).toArray()
+  ).filter((c) => isPendingCatalogCategory(c, guard))
   const metaProducts = [
     ...productRows,
     ...pendingProducts.filter((p) => !newIds.has(p.id)),
@@ -151,6 +144,22 @@ export async function syncCatalogToIndexedDB(organizationId, branchId) {
   pruneOrphanedImages(productIds).catch(() => {})
 
   return true
+}
+
+export async function syncCatalogToIndexedDB(organizationId, branchId) {
+  if (isOfflineMode()) return false
+
+  const orgId = normalizeOrgId(organizationId)
+  const bid = normalizeOrgId(branchId)
+  if (!orgId || !bid) return false
+
+  const [pList, cList, stockData] = await Promise.all([
+    productsApi.list(),
+    categories.list(),
+    stockLevels.list({ branch: bid }),
+  ])
+
+  return persistCatalogToIndexedDB(orgId, bid, pList, cList, stockData)
 }
 
 async function loadProductsFromMeta(orgId) {
@@ -206,7 +215,11 @@ export async function purgeOfflineCatalogOtherOrgs(keepOrganizationId) {
   }
 }
 
-export async function loadCatalogFromIndexedDB(organizationId, branchId, { refreshFromApi = false } = {}) {
+export async function loadCatalogFromIndexedDB(
+  organizationId,
+  branchId,
+  { refreshFromApi = false, skipPrune = false } = {},
+) {
   const orgId = normalizeOrgId(organizationId)
   const bid = branchId != null ? normalizeOrgId(branchId) : null
 
@@ -218,7 +231,7 @@ export async function loadCatalogFromIndexedDB(organizationId, branchId, { refre
     }
   }
 
-  if (orgId) {
+  if (orgId && !skipPrune) {
     await pruneStaleOfflineCatalog(orgId)
   }
 
@@ -231,8 +244,17 @@ export async function loadCatalogFromIndexedDB(organizationId, branchId, { refre
     return loadCatalogFromIndexedDB(fallbackOrg, catalog?.branchId ?? bid)
   }
 
-  const allProducts = await savdoDb.products.toArray()
-  let products = filterActiveProducts(allProducts.filter((p) => productMatchesOrg(p, orgId)))
+  let products = filterActiveProducts(
+    (await savdoDb.products.where('organizationId').equals(orgId).toArray()).filter((p) =>
+      productMatchesOrg(p, orgId),
+    ),
+  )
+
+  if (!products.length) {
+    products = filterActiveProducts(
+      (await savdoDb.products.toArray()).filter((p) => productMatchesOrg(p, orgId)),
+    )
+  }
 
   if (!products.length) {
     products = await loadProductsFromMeta(orgId)

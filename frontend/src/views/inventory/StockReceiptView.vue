@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
 import BarcodeScanner from '../../components/BarcodeScanner.vue'
+import MobileCameraScanFab from '../../components/MobileCameraScanFab.vue'
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { useHardwareBarcodeScanner } from '../../composables/useHardwareBarcodeScanner'
@@ -297,7 +298,7 @@ watch(scannerOpen, (open) => {
 </script>
 
 <template>
-  <div class="products-view stock-receipt-view">
+  <div class="products-view stock-receipt-view receipt-view">
     <PageHeader :title="tr('page.receipt.title')" :subtitle="tr('page.receipt.subtitle')">
       <template #actions>
         <button type="button" class="btn btn--ghost" @click="leaveReceipt">
@@ -482,6 +483,8 @@ watch(scannerOpen, (open) => {
       </template>
     </AppModal>
 
+    <MobileCameraScanFab label-key="page.receipt.scanCamera" @click="openScanner" />
+
     <BarcodeScanner
       :open="scannerOpen"
       :title="tr('page.receipt.scanTitle')"
@@ -517,6 +520,12 @@ watch(scannerOpen, (open) => {
 .products-view__scan {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .products-view__toolbar .products-view__scan {
+    display: none;
+  }
 }
 
 .receipt-view__tap-hint {
