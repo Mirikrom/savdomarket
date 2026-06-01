@@ -85,7 +85,8 @@ class SaleViewSet(viewsets.ModelViewSet):
         if not membership:
             return Response({"detail": "Tashkilot konteksti yo'q."}, status=403)
 
-        today = timezone.localdate()
+        # USE_TZ=False: localdate() raises ValueError on naive datetimes
+        today = timezone.now().date()
         qs = Sale.objects.filter(
             organization=membership.organization,
             sold_at__date=today,
