@@ -265,9 +265,10 @@ export async function loadCatalogFromIndexedDB(
   products = dedupeCatalogProductRows(products, guard, idMap)
   products = sortProductsForDisplay(products)
 
-  products = await attachCachedImagesToProducts(products)
-
-  let categoryRows = (await savdoDb.categories.toArray()).filter((c) => Number(c.organizationId) === orgId)
+  let categoryRows = (await savdoDb.categories.where('organizationId').equals(orgId).toArray())
+  if (!categoryRows.length) {
+    categoryRows = (await savdoDb.categories.toArray()).filter((c) => Number(c.organizationId) === orgId)
+  }
   if (!categoryRows.length) {
     categoryRows = await loadCategoriesFromMeta(orgId)
   }

@@ -14,6 +14,7 @@ import {
 import { POS_SHELL_QUERY_KEY, POS_SHELL_QUERY_VALUE } from '../../posShellQuery'
 import {
   loadCatalogFromIndexedDB,
+  loadStockMapFromIndexedDB,
   persistCatalogToIndexedDB,
 } from '../../offline/catalogSync'
 import {
@@ -387,8 +388,16 @@ function applyProductsList(pList) {
   })
 }
 
-async function fetchData() {
-  loading.value = true
+let fetchInFlight = null
+
+async function fetchData({ background = false } = {}) {
+  if (fetchInFlight) return fetchInFlight
+
+  fetchInFlight = (async () => {
+  const hadRows = rows.value.length > 0
+  if (!background && !hadRows) {
+    loading.value = true
+  }
   apiError.value = ''
 
   if (auth.organizationId) {
@@ -401,7 +410,7 @@ async function fetchData() {
   ])
 
   const hadCache = await loadFromIndexedDBCache({ skipPrune: true })
-  if (hadCache) {
+  if (hadCache || hadRows) {
     loading.value = false
   }
 
@@ -483,6 +492,35 @@ async function fetchData() {
       }
     }
     loading.value = false
+  }
+  })().finally(() => {
+    fetchInFlight = null
+  })
+
+  return fetchInFlight
+}
+
+async function refreshStockForBranch() {
+  const branchId = org.currentBranchId
+  if (!branchId) {
+    stockMap.value = {}
+    return
+  }
+  if (isOfflineMode()) {
+    const cachedQty = await loadStockMapFromIndexedDB(branchId)
+    if (Object.keys(cachedQty).length) {
+      applyStockMapFromQuantities(rows.value, cachedQty)
+    }
+    return
+  }
+  try {
+    const stockData = await stockLevels.list({ branch: branchId })
+    applyStockFromApiResponse(stockData)
+  } catch {
+    const cachedQty = await loadStockMapFromIndexedDB(branchId)
+    if (Object.keys(cachedQty).length) {
+      applyStockMapFromQuantities(rows.value, cachedQty)
+    }
   }
 }
 
@@ -755,32 +793,38 @@ watch(clearProductImage, (cleared) => {
 })
 
 watch(() => org.currentBranchId, () => {
-  fetchStockMap()
+  refreshStockForBranch()
 })
 
 let unsubscribeConnectivity = null
 
-async function onConnectivityChanged(offline) {
+async function onConnectivityChanged(offline, { skipFetch = false } = {}) {
   isOnline.value = !offline
   if (offline) {
     catalogOffline.value = await loadFromIndexedDBCache()
     return
   }
+  if (skipFetch) return
   try {
     await syncOfflineMutations()
   } catch (err) {
     console.warn('[offline] mahsulot mutatsiyalari:', err)
   }
-  await fetchData()
+  await fetchData({ background: true })
 }
 
 function onSyncComplete() {
-  refreshPendingSyncState().then(() => fetchData())
+  refreshPendingSyncState().then(() => fetchData({ background: true }))
 }
 
 onMounted(async () => {
   await fetchData()
-  unsubscribeConnectivity = onConnectivityChange(onConnectivityChanged)
+  let skipInitialConnectivityFetch = true
+  unsubscribeConnectivity = onConnectivityChange((offline) => {
+    const skipFetch = skipInitialConnectivityFetch
+    skipInitialConnectivityFetch = false
+    onConnectivityChanged(offline, { skipFetch })
+  })
   window.addEventListener('savdopro:sync-complete', onSyncComplete)
 })
 
