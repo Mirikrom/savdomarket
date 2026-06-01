@@ -8,6 +8,22 @@ import { initOfflineSync } from './offline/init'
 import { useOrganizationStore } from './stores/organization'
 import { useUiStore } from './stores/ui'
 
+/** Raqam inputida sichqoncha g‘ildiragi qiymatni o‘zgartirmasin */
+document.addEventListener(
+  'wheel',
+  (event) => {
+    const el = event.target
+    if (
+      el instanceof HTMLInputElement &&
+      el.type === 'number' &&
+      document.activeElement === el
+    ) {
+      event.preventDefault()
+    }
+  },
+  { passive: false, capture: true },
+)
+
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)

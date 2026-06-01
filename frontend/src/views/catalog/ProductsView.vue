@@ -689,6 +689,16 @@ function openEdit(row) {
   modalOpen.value = true
 }
 
+function parseDecimalField(value) {
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/\s/g, '')
+    .replace(',', '.')
+  if (!normalized) return 0
+  const n = Number(normalized)
+  return Number.isFinite(n) ? n : 0
+}
+
 function buildPayload() {
   const payload = {
     name: form.name,
@@ -698,11 +708,11 @@ function buildPayload() {
     unit: form.unit,
     sell_price: form.sell_price || 0,
     cost_price: form.cost_price || 0,
-    min_stock: form.min_stock || 0,
+    min_stock: parseDecimalField(form.min_stock),
     branch: form.branch || null,
   }
   if (!editingId.value) {
-    payload.initial_quantity = form.quantity || 0
+    payload.initial_quantity = parseDecimalField(form.quantity)
   }
   return payload
 }
@@ -1132,7 +1142,13 @@ onUnmounted(() => {
             </label>
             <label class="field">
               <span>Minimal qoldiq</span>
-              <input v-model="form.min_stock" type="number" min="0" step="0.001" />
+              <input
+                v-model="form.min_stock"
+                type="text"
+                inputmode="decimal"
+                autocomplete="off"
+                @wheel.prevent.stop
+              />
             </label>
           </div>
 
@@ -1143,6 +1159,7 @@ onUnmounted(() => {
               type="text"
               inputmode="decimal"
               autocomplete="off"
+              @wheel.prevent.stop
             />
           </label>
 
