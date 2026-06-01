@@ -86,7 +86,6 @@ const paymentTabs = computed(() => [
   { code: 'cash', label: tr('pos.payTab.cash') },
   { code: 'card', label: tr('pos.payTab.card') },
   { code: 'mixed', label: tr('pos.payTab.mixed') },
-  { code: 'credit', label: tr('pos.payTab.credit') },
 ])
 
 const cart = reactive({
@@ -105,12 +104,8 @@ const activeMethod = ref('cash')
 const mixedSubMode = ref(null)
 
 const isCreditPayment = computed(
-  () =>
-    activeMethod.value === 'credit' ||
-    (activeMethod.value === 'mixed' && mixedSubMode.value === 'credit'),
+  () => activeMethod.value === 'mixed' && mixedSubMode.value === 'credit',
 )
-
-const showCreditDebtorUI = computed(() => isCreditPayment.value)
 
 const submitDisabled = computed(
   () =>
@@ -465,13 +460,6 @@ function setPaymentMethod(code) {
       return
     }
     activeMethod.value = 'mixed'
-    return
-  } else if (code === 'credit') {
-    mixedSubMode.value = null
-    payments.cardAmount = ''
-    payments.cashAmount = '0'
-    activeMethod.value = 'credit'
-    if (isOfflineMode() && !debtorList.value.length) newDebtorMode.value = true
     return
   }
   activeMethod.value = code
@@ -1222,31 +1210,41 @@ onUnmounted(() => {
           </div>
           <p class="hint">{{ tr('pos.mixedMinHint', { total: formatMoney(total) }) }}</p>
           </div>
-        </template>
 
-        <div v-if="showCreditDebtorUI" class="payment-section payment-section--credit">
-          <label class="field field--full">
-            <span>{{ tr('pos.debtor') }}</span>
-            <select v-if="!newDebtorMode" v-model="selectedDebtorId" :disabled="debtorsLoading">
-              <option value="">{{ tr('pos.selectPlaceholder') }}</option>
-              <option v-for="d in debtorList" :key="d.id" :value="String(d.id)">
-                {{ debtorOptionLabel(d) }}
-              </option>
-            </select>
-          </label>
-          <button type="button" class="btn btn--ghost btn--sm" @click="newDebtorMode = !newDebtorMode">
-            {{ newDebtorMode ? tr('pos.listFromRegister') : tr('pos.newDebtor') }}
-          </button>
-          <template v-if="newDebtorMode">
-            <label class="field field--full"><span>{{ tr('pos.fieldName') }}</span><input v-model="newDebtor.name" type="text" /></label>
-            <label class="field field--full"><span>{{ tr('pos.fieldPhone') }}</span><input v-model="newDebtor.phone" type="tel" /></label>
-          </template>
-          <label class="field field--full">
-            <span>{{ tr('pos.cashOptional') }}</span>
-            <input v-model="payments.cashAmount" type="number" min="0" step="0.01" />
-          </label>
-          <p class="hint">{{ tr('pos.creditRemainderHint', { amount: formatMoney(creditDebtAmount) }) }}</p>
-        </div>
+          <div
+            v-else-if="mixedSubMode === 'credit'"
+            class="payment-section payment-section--credit"
+          >
+            <button
+              type="button"
+              class="btn btn--ghost btn--sm payment-mixed-back"
+              @click="mixedSubMode = null"
+            >
+              ← {{ tr('pos.payTab.mixed') }}
+            </button>
+            <label class="field field--full">
+              <span>{{ tr('pos.debtor') }}</span>
+              <select v-if="!newDebtorMode" v-model="selectedDebtorId" :disabled="debtorsLoading">
+                <option value="">{{ tr('pos.selectPlaceholder') }}</option>
+                <option v-for="d in debtorList" :key="d.id" :value="String(d.id)">
+                  {{ debtorOptionLabel(d) }}
+                </option>
+              </select>
+            </label>
+            <button type="button" class="btn btn--ghost btn--sm" @click="newDebtorMode = !newDebtorMode">
+              {{ newDebtorMode ? tr('pos.listFromRegister') : tr('pos.newDebtor') }}
+            </button>
+            <template v-if="newDebtorMode">
+              <label class="field field--full"><span>{{ tr('pos.fieldName') }}</span><input v-model="newDebtor.name" type="text" /></label>
+              <label class="field field--full"><span>{{ tr('pos.fieldPhone') }}</span><input v-model="newDebtor.phone" type="tel" /></label>
+            </template>
+            <label class="field field--full">
+              <span>{{ tr('pos.cashOptional') }}</span>
+              <input v-model="payments.cashAmount" type="number" min="0" step="0.01" />
+            </label>
+            <p class="hint">{{ tr('pos.creditRemainderHint', { amount: formatMoney(creditDebtAmount) }) }}</p>
+          </div>
+        </template>
 
         <div class="payment-summary">
           <template v-if="activeMethod === 'mixed' && mixedSubMode === 'split'">
