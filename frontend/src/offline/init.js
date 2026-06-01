@@ -1,4 +1,4 @@
-import { checkApiReachable, onConnectivityChange } from './connectivity'
+import { checkApiReachable, onConnectivityChange, resumeConnectivityProbe } from './connectivity'
 import { scheduleFullSync, schedulePendingSalesSync } from './syncScheduler'
 
 let listenersBound = false
@@ -57,8 +57,20 @@ export function initOfflineSync(getContext) {
     checkApiReachable()
   })
 
+  const runProbeIfVisible = () => {
+    if (typeof document !== 'undefined' && document.hidden) return
+    probe()
+  }
+
   probe()
-  probeTimer = setInterval(probe, 15000)
+  probeTimer = setInterval(runProbeIfVisible, 60000)
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      resumeConnectivityProbe()
+      probe()
+    }
+  })
 }
 
 export function stopOfflineProbe() {

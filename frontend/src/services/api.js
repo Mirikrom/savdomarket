@@ -1,6 +1,7 @@
 import axios from 'axios'
 
 import { markApiReachable, markApiUnreachable } from '../offline/connectivity'
+import { refreshAccessToken } from './authTokens'
 import { isSubscriptionFeatureError } from '../utils/apiErrors'
 
 // Default: relative `/api/v1` — Vite dev server proxy orqali backend'ga uzatadi
@@ -107,11 +108,10 @@ api.interceptors.response.use(
 
     isRefreshing = true
     try {
-      const { data } = await axios.post(`${BASE_URL}/auth/token/refresh/`, { refresh })
-      if (data.access) localStorage.setItem('access_token', data.access)
-      if (data.refresh) localStorage.setItem('refresh_token', data.refresh)
-      processQueue(null, data.access)
-      original.headers.Authorization = `Bearer ${data.access}`
+      const access = await refreshAccessToken()
+      if (!access) throw new Error('Token refresh failed')
+      processQueue(null, access)
+      original.headers.Authorization = `Bearer ${access}`
       original._retried = true
       return api(original)
     } catch (refreshError) {
