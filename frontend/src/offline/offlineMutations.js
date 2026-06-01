@@ -2,9 +2,11 @@ import { categories, products as productsApi } from '../services/catalog.service
 import { isOfflineMode } from './connectivity'
 import {
   cacheLocalProductImageFile,
+  cacheProductImages,
   deleteLocalProductImage,
   getLocalProductImageFile,
   migrateProductImageCache,
+  productHasLocalImage,
 } from './imageCache'
 import { getMeta, normalizeOrgId, savdoDb, setMeta, toPlainJson } from './db'
 import { localDateTimeIso } from '../lib/localDateTime'
@@ -409,6 +411,7 @@ export async function offlineCreateProduct(organizationId, payload, { imageFile 
     image_url: '',
     created_at: localDateTimeIso(),
     _offlinePending: true,
+    _hasLocalImage: Boolean(imageFile instanceof File),
   })
 
   await savdoDb.products.put(row)
@@ -423,7 +426,11 @@ export async function offlineCreateProduct(organizationId, payload, { imageFile 
     await upsertLocalStockLevel(branchId, tempId, payload.initial_quantity ?? 0)
   }
 
-  await queueMutation('product_create', { ...payload, tempId, hasImage: Boolean(imageFile) }, orgId)
+  await queueMutation(
+    'product_create',
+    { ...payload, tempId, hasImage: imageFile instanceof File },
+    orgId,
+  )
 
   return row
 }
@@ -473,7 +480,9 @@ export async function offlineCreateCategory(organizationId, { name }) {
 let syncMutationsInFlight = null
 
 export async function syncOfflineMutations() {
-  if (isOfflineMode()) return { synced: 0, failed: 0, skipped: true }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { synced: 0, failed: 0, skipped: true, offline: true }
+  }
   if (syncMutationsInFlight) return syncMutationsInFlight
 
   syncMutationsInFlight = (async () => {
@@ -515,25 +524,43 @@ export async function syncOfflineMutations() {
           branch: p.branch || null,
           initial_quantity: p.initial_quantity ?? 0,
         }
+        const tempId = p.tempId != null ? Number(p.tempId) : null
+        const wantsImage =
+          Boolean(p.hasImage) || (tempId != null && (await productHasLocalImage(tempId)))
+
         const createOpts = {}
-        if (p.hasImage && p.tempId != null) {
-          const imageFile = await getLocalProductImageFile(p.tempId)
+        if (wantsImage && tempId != null) {
+          const imageFile = await getLocalProductImageFile(tempId)
           if (imageFile) createOpts.image = imageFile
         }
-        const created = await productsApi.create(createPayload, createOpts)
-        if (p.tempId != null) {
-          idMap[String(p.tempId)] = created.id
-          await migrateLocalStockProductId(p.tempId, created.id)
-          if (p.hasImage) await migrateProductImageCache(p.tempId, created.id)
-          await deleteLocalProductById(p.tempId)
-          await savdoDb.products.put(
-            toPlainJson({
-              ...created,
-              organizationId: row.organizationId,
-              organization: row.organizationId,
+
+        let created = await productsApi.create(createPayload, createOpts)
+
+        if (!created.image_url && createOpts.image && created?.id) {
+          try {
+            created = await productsApi.update(created.id, createPayload, {
+              image: createOpts.image,
             })
-          )
-          await replaceTempProductInMeta(row.organizationId, p.tempId, created)
+          } catch (err) {
+            console.warn('[offline] mahsulot rasmi qayta yuklash:', err)
+          }
+        }
+
+        if (tempId != null) {
+          idMap[String(tempId)] = created.id
+          await migrateLocalStockProductId(tempId, created.id)
+          if (wantsImage) await migrateProductImageCache(tempId, created.id)
+          await deleteLocalProductById(tempId)
+          const plain = toPlainJson({
+            ...created,
+            organizationId: row.organizationId,
+            organization: row.organizationId,
+          })
+          await savdoDb.products.put(plain)
+          if (created.image_url) {
+            await cacheProductImages([plain], { concurrency: 1 })
+          }
+          await replaceTempProductInMeta(row.organizationId, tempId, created)
         }
       } else if (row.kind === 'product_update') {
         let pid = Number(p.productId)
@@ -543,12 +570,19 @@ export async function syncOfflineMutations() {
           payload.category = resolveCategoryId(payload.category, catMap)
         }
         const updateOpts = {}
-        if (p.hasImage) {
+        const wantsImage = Boolean(p.hasImage) || (await productHasLocalImage(pid))
+        if (wantsImage) {
           const imageFile = await getLocalProductImageFile(pid)
           if (imageFile) updateOpts.image = imageFile
         }
         if (p.clearImage) updateOpts.clearImage = true
-        await productsApi.update(pid, payload, updateOpts)
+        const updated = await productsApi.update(pid, payload, updateOpts)
+        if (updated?.image_url) {
+          await cacheProductImages(
+            [toPlainJson({ ...updated, organizationId: row.organizationId })],
+            { concurrency: 1 },
+          )
+        }
       } else if (row.kind === 'category_create') {
         const created = await categories.create({ name: p.name })
         if (p.tempId != null) {

@@ -86,18 +86,22 @@ export async function deleteLocalProductImage(productId) {
   blobUrlByProductId.delete(id)
 }
 
+export async function productHasLocalImage(productId) {
+  const row = await savdoDb.product_images.get(Number(productId))
+  return Boolean(row?.blob)
+}
+
 export async function attachCachedImagesToProducts(products) {
   if (!products?.length) return products
-  const ids = products.map((p) => p.id)
-  const rows = await savdoDb.product_images.bulkGet(ids)
-  for (let i = 0; i < products.length; i++) {
-    const row = rows[i]
-    const p = products[i]
+  for (const p of products) {
+    const pid = Number(p.id)
+    if (!Number.isFinite(pid)) continue
+    const row = await savdoDb.product_images.get(pid)
     if (!row?.blob) continue
-    let url = blobUrlByProductId.get(p.id)
+    let url = blobUrlByProductId.get(pid)
     if (!url) {
       url = URL.createObjectURL(row.blob)
-      blobUrlByProductId.set(p.id, url)
+      blobUrlByProductId.set(pid, url)
     }
     p._cachedImageUrl = url
   }

@@ -408,27 +408,24 @@ async function applyProductsListIfChanged(pList) {
 
 let attachImagesPromise = null
 
-function attachProductImagesOnce() {
-  if (!rows.value.length) return Promise.resolve()
+async function attachProductImagesOnce() {
+  if (!rows.value.length) return
   if (attachImagesPromise) return attachImagesPromise
-  attachImagesPromise = attachCachedImagesToProducts(rows.value)
-    .then((next) => {
-      const curSig = productIdsSignature(rows.value)
-      const nextSig = productIdsSignature(next)
-      if (curSig === nextSig) {
-        const hasNewUrls = next.some(
-          (p, i) => p._cachedImageUrl && p._cachedImageUrl !== rows.value[i]?._cachedImageUrl,
-        )
-        if (hasNewUrls) {
-          rows.value = sortProductsForDisplay(next)
-        }
-      } else {
-        rows.value = sortProductsForDisplay(next)
-      }
-    })
-    .finally(() => {
-      attachImagesPromise = null
-    })
+
+  attachImagesPromise = (async () => {
+    const next = await attachCachedImagesToProducts([...rows.value])
+    const curSig = productIdsSignature(rows.value)
+    const nextSig = productIdsSignature(next)
+    const hasNewUrls = next.some(
+      (p, i) => p._cachedImageUrl && p._cachedImageUrl !== rows.value[i]?._cachedImageUrl,
+    )
+    if (curSig !== nextSig || hasNewUrls) {
+      rows.value = sortProductsForDisplay(next)
+    }
+  })().finally(() => {
+    attachImagesPromise = null
+  })
+
   return attachImagesPromise
 }
 
@@ -484,7 +481,7 @@ async function refreshCatalogFromApi() {
     applyStockFromApiResponse(stockData)
     markProductsDisplayed()
 
-    attachProductImagesOnce()
+    await attachProductImagesOnce()
 
     if (orgId && branchId) {
       persistCatalogToIndexedDB(orgId, branchId, pList, cList, stockData).catch((err) => {
@@ -492,11 +489,10 @@ async function refreshCatalogFromApi() {
       })
     }
 
-    cacheProductImages(rows.value, { concurrency: 3 })
-      .then((r) => {
-        if (r.cached) attachProductImagesOnce()
-      })
-      .catch(() => {})
+    const cached = await cacheProductImages(rows.value, { concurrency: 3 }).catch(() => ({
+      cached: 0,
+    }))
+    if (cached.cached) await attachProductImagesOnce()
   } catch (err) {
     console.warn('[products] yuklash:', err)
     const ok = await checkApiReachable()
@@ -534,7 +530,7 @@ async function fetchData() {
     const cacheLoad = await loadFromIndexedDBCache({ skipPrune: true })
     if (cacheLoad.hadCache) {
       markProductsDisplayed()
-      attachProductImagesOnce()
+      await attachProductImagesOnce()
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         refreshCatalogFromApi().catch((err) => {
           console.warn('[products] fon yangilash:', err)
@@ -733,20 +729,25 @@ async function submit() {
           imageFile: imageFile.value,
           clearImage: clearProductImage.value,
         })
+        await attachProductImagesOnce()
       } else {
         const created = await offlineCreateProduct(orgId, payload, { imageFile: imageFile.value })
         const qty = Number(payload.initial_quantity ?? 0)
         const min = Number(payload.min_stock ?? 0)
-        if (branchId && created?.id != null) {
-          stockMap.value = {
-            ...stockMap.value,
-            [created.id]: { quantity: qty, is_low: qty <= min, min_stock: min },
-          }
-        }
+        mergeCreatedProductRow({
+          ...created,
+          _initialStock: qty,
+        })
+        await attachProductImagesOnce()
       }
       modalOpen.value = false
       await refreshPendingSyncState()
-      await fetchData()
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        await refreshCatalogFromApi().catch(() => {})
+      } else {
+        await loadFromIndexedDBCache({ skipPrune: true })
+        await attachProductImagesOnce()
+      }
       return
     }
 
