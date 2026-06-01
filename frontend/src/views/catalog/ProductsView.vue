@@ -97,6 +97,8 @@ function productSyncIconKind(status) {
 }
 
 const loading = ref(true)
+/** Jadvalda ma’lumot bir marta chiqgach, qayta «Yuklanmoqda» ko‘rsatilmaydi. */
+const hasDisplayedProducts = ref(false)
 const isOnline = ref(!isOfflineMode())
 const catalogOffline = ref(false)
 const modalOpen = ref(false)
@@ -345,9 +347,6 @@ async function loadFromIndexedDBCache({ skipPrune = false } = {}) {
   rows.value = sortProductsForDisplay(cached.products)
   categoryList.value = cached.categories
   applyStockMapFromQuantities(cached.products, cached.stockMap)
-  attachCachedImagesToProducts(rows.value).then((next) => {
-    rows.value = sortProductsForDisplay(next)
-  })
   return true
 }
 
@@ -378,25 +377,73 @@ function mergeCreatedProductRow(created) {
   }
 }
 
-function applyProductsList(pList) {
+/** Ro‘yxat o‘zgarmagan bo‘lsa qayta chizmaydi (kesh → API ikki marta emas). */
+function applyProductsListIfChanged(pList) {
   if (!Array.isArray(pList)) {
     throw new Error('Mahsulotlar ro‘yxati noto‘g‘ri javob qaytardi')
   }
+  const nextSig = productIdsSignature(pList)
+  const curSig = productIdsSignature(rows.value)
+  if (curSig && nextSig && curSig === nextSig) {
+    return false
+  }
   rows.value = sortProductsForDisplay(pList)
-  attachCachedImagesToProducts(rows.value).then((next) => {
-    rows.value = sortProductsForDisplay(next)
-  })
+  return true
+}
+
+let attachImagesPromise = null
+
+function attachProductImagesOnce() {
+  if (!rows.value.length) return Promise.resolve()
+  if (attachImagesPromise) return attachImagesPromise
+  attachImagesPromise = attachCachedImagesToProducts(rows.value)
+    .then((next) => {
+      const curSig = productIdsSignature(rows.value)
+      const nextSig = productIdsSignature(next)
+      if (curSig === nextSig) {
+        const hasNewUrls = next.some(
+          (p, i) => p._cachedImageUrl && p._cachedImageUrl !== rows.value[i]?._cachedImageUrl,
+        )
+        if (hasNewUrls) {
+          rows.value = sortProductsForDisplay(next)
+        }
+      } else {
+        rows.value = sortProductsForDisplay(next)
+      }
+    })
+    .finally(() => {
+      attachImagesPromise = null
+    })
+  return attachImagesPromise
 }
 
 let fetchInFlight = null
+let lastSyncRefreshAt = 0
+
+function setTableLoading(active) {
+  if (active && hasDisplayedProducts.value) return
+  loading.value = active
+}
+
+function markProductsDisplayed() {
+  loading.value = false
+  if (rows.value.length > 0) {
+    hasDisplayedProducts.value = true
+  }
+}
+
+function productIdsSignature(list) {
+  if (!list?.length) return ''
+  return list.map((p) => p.id).join(',')
+}
 
 async function fetchData({ background = false } = {}) {
   if (fetchInFlight) return fetchInFlight
 
   fetchInFlight = (async () => {
   const hadRows = rows.value.length > 0
-  if (!background && !hadRows) {
-    loading.value = true
+  if (!background && !hadRows && !hasDisplayedProducts.value) {
+    setTableLoading(true)
   }
   apiError.value = ''
 
@@ -411,7 +458,8 @@ async function fetchData({ background = false } = {}) {
 
   const hadCache = await loadFromIndexedDBCache({ skipPrune: true })
   if (hadCache || hadRows) {
-    loading.value = false
+    markProductsDisplayed()
+    attachProductImagesOnce()
   }
 
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -421,7 +469,7 @@ async function fetchData({ background = false } = {}) {
       apiError.value =
         'Offline rejim — mahsulotlar keshda yo‘q. Avval backend yoqilgan holda Kassa yoki shu sahifani oching.'
     }
-    loading.value = false
+    markProductsDisplayed()
     return
   }
 
@@ -458,15 +506,19 @@ async function fetchData({ background = false } = {}) {
       } else {
         catalogOffline.value = true
       }
-      loading.value = false
+      markProductsDisplayed()
       return
     }
 
-    applyProductsList(pList)
-    categoryList.value = cList || []
+    applyProductsListIfChanged(pList)
+    if (cList?.length || !categoryList.value.length) {
+      categoryList.value = cList || []
+    }
     applyStockFromApiResponse(stockData)
     catalogOffline.value = false
-    loading.value = false
+    markProductsDisplayed()
+
+    attachProductImagesOnce()
 
     if (orgId && branchId) {
       persistCatalogToIndexedDB(orgId, branchId, pList, cList, stockData).catch((err) => {
@@ -474,13 +526,11 @@ async function fetchData({ background = false } = {}) {
       })
     }
 
-    cacheProductImages(rows.value, { concurrency: 3 }).then((r) => {
-      if (r.cached) {
-        attachCachedImagesToProducts(rows.value).then((next) => {
-          rows.value = sortProductsForDisplay(next)
-        })
-      }
-    }).catch(() => {})
+    cacheProductImages(rows.value, { concurrency: 3 })
+      .then((r) => {
+        if (r.cached) attachProductImagesOnce()
+      })
+      .catch(() => {})
   } catch (err) {
     console.warn('[products] yuklash:', err)
     if (!rows.value.length) {
@@ -491,13 +541,22 @@ async function fetchData({ background = false } = {}) {
         apiError.value = 'Server bilan bog‘lanib bo‘lmadi va lokal kesh bo‘sh.'
       }
     }
-    loading.value = false
+    markProductsDisplayed()
   }
   })().finally(() => {
     fetchInFlight = null
   })
 
   return fetchInFlight
+}
+
+/** `savdopro:sync-complete` — faqat sinxron belgisi; jadvalni qayta yuklamaydi. */
+async function refreshFromSyncEvent() {
+  if (fetchInFlight) return
+  const now = Date.now()
+  if (now - lastSyncRefreshAt < 4000) return
+  lastSyncRefreshAt = now
+  await refreshPendingSyncState()
 }
 
 async function refreshStockForBranch() {
@@ -814,7 +873,7 @@ async function onConnectivityChanged(offline, { skipFetch = false } = {}) {
 }
 
 function onSyncComplete() {
-  refreshPendingSyncState().then(() => fetchData({ background: true }))
+  refreshFromSyncEvent().catch(() => {})
 }
 
 onMounted(async () => {

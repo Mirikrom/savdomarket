@@ -32,10 +32,11 @@ export const useOrganizationStore = defineStore('organization', {
           const { scheduleFullSync } = await import('../offline/syncScheduler')
           const { saveOrganizationSnapshot } = await import('../offline/posContext')
           await saveOrganizationSnapshot(this).catch(() => {})
-          await scheduleFullSync(this.organization.id, this.currentBranchId, {
+          // force: false — sahifa ochilganda ikki marta katalog yuklanmasin
+          scheduleFullSync(this.organization.id, this.currentBranchId, {
             branches: this.branches,
             organization: this.organization,
-            force: true,
+            force: false,
           }).catch(() => {})
         }
       } catch {
@@ -83,7 +84,7 @@ export const useOrganizationStore = defineStore('organization', {
         scheduleFullSync(this.organization.id, branchId, {
           branches: this.branches,
           organization: this.organization,
-          force: true,
+          force: false,
         }).catch(() => {})
       }
     },
