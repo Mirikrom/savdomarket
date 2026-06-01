@@ -7,7 +7,12 @@ import PageHeader from '../../components/PageHeader.vue'
 import SaleReceipt from '../../components/SaleReceipt.vue'
 import SyncStatusIcon from '../../components/SyncStatusIcon.vue'
 import { formatQuantity } from '../../lib/formatQuantity'
-import { isOfflineMode } from '../../offline/connectivity'
+import {
+  checkApiReachable,
+  isOfflineMode,
+  markApiReachable,
+  onConnectivityChange,
+} from '../../offline/connectivity'
 import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
 import { loadSalesFromIndexedDB } from '../../offline/salesCache'
 import { sales as salesApi } from '../../services/sales.service'
@@ -18,7 +23,14 @@ const org = useOrganizationStore()
 const { tr, locale, branchLabel, branchName } = useI18n()
 
 const rows = ref([])
-const loading = ref(true)
+const loading = ref(false)
+const hasDisplayedSales = ref(false)
+let fetchInFlight = null
+let lastSyncRefreshAt = 0
+let filtersReady = false
+let unsubscribeConnectivity = null
+
+const tableLoading = computed(() => loading.value && rows.value.length === 0)
 const detailOpen = ref(false)
 const detail = ref(null)
 const receiptOpen = ref(false)
@@ -108,43 +120,149 @@ function paymentMethodLabel(method) {
   return method || '—'
 }
 
-async function fetchSales() {
-  loading.value = true
+function salesIdsSignature(list) {
+  if (!list?.length) return ''
+  return list.map((s) => s.id).join(',')
+}
+
+function applySalesListIfChanged(next) {
+  if (!Array.isArray(next)) return false
+  const nextSig = salesIdsSignature(next)
+  const curSig = salesIdsSignature(rows.value)
+  if (curSig && nextSig && curSig === nextSig) return false
+  rows.value = next
+  return true
+}
+
+function setTableLoading(active) {
+  if (active && hasDisplayedSales.value) return
+  loading.value = active
+}
+
+function markSalesDisplayed() {
+  loading.value = false
+  if (rows.value.length > 0) {
+    hasDisplayedSales.value = true
+  }
+}
+
+function applyClientFilters(list) {
+  let result = list
+  if (filters.branch) {
+    const bid = Number(filters.branch)
+    result = result.filter((r) => !r.branch || Number(r.branch) === bid)
+  }
+  if (filters.status) {
+    result = result.filter((r) => r.status === filters.status)
+  }
+  if (filters.date_from) {
+    const from = new Date(filters.date_from)
+    from.setHours(0, 0, 0, 0)
+    result = result.filter((r) => r.sold_at && new Date(r.sold_at) >= from)
+  }
+  if (filters.date_to) {
+    const to = new Date(filters.date_to)
+    to.setHours(23, 59, 59, 999)
+    result = result.filter((r) => r.sold_at && new Date(r.sold_at) <= to)
+  }
+  return result
+}
+
+async function loadSalesFromCache() {
+  await hydrateOrganizationStore(org)
+  const { orgId, branchId } = await resolvePosIds(org)
+  if (!orgId) return { hadCache: false, orgId: null, branchId }
+
+  const cached = await loadSalesFromIndexedDB(orgId, {
+    branchId: filters.branch || branchId,
+  })
+  if (!cached.length) return { hadCache: false, orgId, branchId }
+
+  applySalesListIfChanged(applyClientFilters(cached))
+  return { hadCache: true, orgId, branchId }
+}
+
+async function refreshSalesFromApi() {
   await hydrateOrganizationStore(org)
   const { orgId, branchId } = await resolvePosIds(org)
 
-  try {
-    if (isOfflineMode()) {
-      rows.value = await loadSalesFromIndexedDB(orgId, {
+  const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine
+  if (browserOffline || isOfflineMode()) {
+    if (orgId) {
+      const cached = await loadSalesFromIndexedDB(orgId, {
         branchId: filters.branch || branchId,
       })
-      if (filters.status) {
-        rows.value = rows.value.filter((r) => r.status === filters.status)
-      }
-      return
+      applySalesListIfChanged(applyClientFilters(cached))
     }
+    markSalesDisplayed()
+    return
+  }
 
+  try {
     const params = {}
     if (filters.branch) params.branch = filters.branch
     if (filters.status) params.status = filters.status
     if (filters.date_from) params.date_from = filters.date_from
     if (filters.date_to) params.date_to = filters.date_to
-    rows.value = await salesApi.list(params)
+
+    const list = await salesApi.list(params)
+    markApiReachable()
+    applySalesListIfChanged(list)
+    markSalesDisplayed()
+
     if (orgId) {
       const { syncSalesToIndexedDB } = await import('../../offline/salesCache')
       syncSalesToIndexedDB(orgId).catch(() => {})
     }
-  } catch {
+  } catch (err) {
+    console.warn('[sales-history] yuklash:', err)
     if (orgId) {
-      rows.value = await loadSalesFromIndexedDB(orgId, {
+      const cached = await loadSalesFromIndexedDB(orgId, {
         branchId: filters.branch || branchId,
       })
-    } else {
-      rows.value = []
+      applySalesListIfChanged(applyClientFilters(cached))
     }
-  } finally {
-    loading.value = false
+    await checkApiReachable()
+    markSalesDisplayed()
   }
+}
+
+async function fetchSales({ background = false } = {}) {
+  if (fetchInFlight) return fetchInFlight
+
+  fetchInFlight = (async () => {
+    const cacheLoad = await loadSalesFromCache()
+    if (cacheLoad.hadCache) {
+      markSalesDisplayed()
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        refreshSalesFromApi().catch(() => {})
+      }
+      return
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      markSalesDisplayed()
+      return
+    }
+
+    if (!background && !hasDisplayedSales.value && !rows.value.length) {
+      setTableLoading(true)
+    }
+
+    await refreshSalesFromApi()
+  })().finally(() => {
+    fetchInFlight = null
+  })
+
+  return fetchInFlight
+}
+
+function onSyncComplete() {
+  if (fetchInFlight) return
+  const now = Date.now()
+  if (now - lastSyncRefreshAt < 4000) return
+  lastSyncRefreshAt = now
+  refreshSalesFromApi().catch(() => {})
 }
 
 async function showDetail(row) {
@@ -192,18 +310,49 @@ function clearFilters() {
   filters.date_to = ''
 }
 
-watch(filters, fetchSales, { deep: true })
+watch(filters, () => {
+  if (!filtersReady) return
+  if (hasDisplayedSales.value || rows.value.length) {
+    loadSalesFromCache()
+      .then((cacheLoad) => {
+        if (cacheLoad.hadCache) markSalesDisplayed()
+        refreshSalesFromApi().catch(() => {})
+      })
+      .catch(() => refreshSalesFromApi().catch(() => {}))
+    return
+  }
+  fetchSales().catch(() => {})
+}, { deep: true })
 
 onMounted(async () => {
   await hydrateOrganizationStore(org)
   const { branchId } = await resolvePosIds(org)
   if (branchId) filters.branch = String(branchId)
+  filtersReady = true
   await fetchSales()
-  window.addEventListener('savdopro:sync-complete', fetchSales)
+
+  let skipInitialConnectivity = true
+  unsubscribeConnectivity = onConnectivityChange((offline) => {
+    const skip = skipInitialConnectivity
+    skipInitialConnectivity = false
+    if (offline) {
+      loadSalesFromCache().then(() => markSalesDisplayed())
+      return
+    }
+    if (skip) return
+    if (hasDisplayedSales.value || rows.value.length) {
+      refreshSalesFromApi().catch(() => {})
+    } else {
+      fetchSales({ background: true }).catch(() => {})
+    }
+  })
+
+  window.addEventListener('savdopro:sync-complete', onSyncComplete)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('savdopro:sync-complete', fetchSales)
+  unsubscribeConnectivity?.()
+  window.removeEventListener('savdopro:sync-complete', onSyncComplete)
 })
 </script>
 
@@ -234,7 +383,7 @@ onUnmounted(() => {
       <DataTable
         :columns="columns"
         :rows="rows"
-        :loading="loading"
+        :loading="tableLoading"
         clickable
         :empty-text="tr('page.salesHistory.emptyTable')"
         @row-click="showDetail"
