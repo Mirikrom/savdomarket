@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-import { markApiUnreachable } from '../offline/connectivity'
+import { markApiReachable, markApiUnreachable } from '../offline/connectivity'
 import { isSubscriptionFeatureError } from '../utils/apiErrors'
 
 // Default: relative `/api/v1` — Vite dev server proxy orqali backend'ga uzatadi
@@ -65,7 +65,10 @@ function redirectToLogin() {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    markApiReachable()
+    return response
+  },
   async (error) => {
     const status = error.response?.status
     if (!error.response || status === 502 || status === 503 || status === 504) {

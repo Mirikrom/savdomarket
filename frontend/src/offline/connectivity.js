@@ -1,8 +1,8 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
-/** Tekinmaguncha offline deb hisoblanadi — refresh da noto‘g‘ri sync oldini oladi. */
-let apiReachable = false
-let lastNotifiedOffline = true
+/** Brauzer onlayn bo‘lsa, API tekshiruvigacha optimistik onlayn (prod da «offline→onlayn» sakrashini kamaytiradi). */
+let apiReachable = typeof navigator !== 'undefined' ? navigator.onLine : false
+let lastNotifiedOffline = typeof navigator !== 'undefined' ? !navigator.onLine : true
 let probeInFlight = null
 
 const listeners = new Set()

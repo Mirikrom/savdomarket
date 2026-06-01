@@ -25,6 +25,7 @@ import {
 import {
   checkApiReachable,
   isOfflineMode,
+  markApiReachable,
   onConnectivityChange,
 } from '../../offline/connectivity'
 import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
@@ -99,8 +100,6 @@ function productSyncIconKind(status) {
 const loading = ref(false)
 /** Jadvalda ma’lumot bir marta chiqgach, qayta «Yuklanmoqda» ko‘rsatilmaydi. */
 const hasDisplayedProducts = ref(false)
-/** Kesh yangi bo‘lsa API kutmasdan fon yangilash. */
-const CATALOG_FRESH_MS = 120_000
 const isOnline = ref(!isOfflineMode())
 const catalogOffline = ref(false)
 const modalOpen = ref(false)
@@ -338,10 +337,6 @@ function applyStockMapFromQuantities(productRows, quantityByProductId = {}) {
   stockMap.value = map
 }
 
-function isCatalogCacheFresh(syncedAt) {
-  return Boolean(syncedAt && Date.now() - syncedAt < CATALOG_FRESH_MS)
-}
-
 async function loadFromIndexedDBCache({ skipPrune = false } = {}) {
   await hydrateOrganizationStore(org)
   const { orgId, branchId } = await resolvePosIds(org)
@@ -355,9 +350,12 @@ async function loadFromIndexedDBCache({ skipPrune = false } = {}) {
     return { hadCache: false, syncedAt: cached.syncedAt ?? null }
   }
 
-  rows.value = sortProductsForDisplay(cached.products)
-  categoryList.value = cached.categories
-  applyStockMapFromQuantities(cached.products, cached.stockMap)
+  const nextProducts = sortProductsForDisplay(cached.products)
+  applyProductsListIfChanged(nextProducts)
+  if (cached.categories?.length || !categoryList.value.length) {
+    categoryList.value = cached.categories
+  }
+  applyStockMapFromQuantities(rows.value, cached.stockMap)
   return { hadCache: true, syncedAt: cached.syncedAt ?? null }
 }
 
@@ -450,7 +448,6 @@ function productIdsSignature(list) {
 
 async function refreshCatalogFromApi() {
   const { orgId, branchId } = await resolvePosIds(org)
-  const reachabilityPromise = checkApiReachable()
   if (orgId) {
     pruneStaleOfflineCatalog(orgId).catch(() => {})
   }
@@ -469,30 +466,15 @@ async function refreshCatalogFromApi() {
         : Promise.resolve({ results: [] }),
     ])
 
-    const ok = await reachabilityPromise
-    isOnline.value = ok
-
-    if (!ok) {
-      if (!rows.value.length) {
-        const { hadCache: restored } = await loadFromIndexedDBCache()
-        catalogOffline.value = restored || rows.value.length > 0
-        if (!rows.value.length) {
-          apiError.value =
-            'Offline rejim — mahsulotlar keshda yo‘q. Avval backend yoqilgan holda Kassa yoki shu sahifani oching.'
-        }
-      } else {
-        catalogOffline.value = true
-      }
-      markProductsDisplayed()
-      return
-    }
+    markApiReachable()
+    isOnline.value = true
+    catalogOffline.value = false
 
     applyProductsListIfChanged(pList)
     if (cList?.length || !categoryList.value.length) {
       categoryList.value = cList || []
     }
     applyStockFromApiResponse(stockData)
-    catalogOffline.value = false
     markProductsDisplayed()
 
     attachProductImagesOnce()
@@ -510,19 +492,24 @@ async function refreshCatalogFromApi() {
       .catch(() => {})
   } catch (err) {
     console.warn('[products] yuklash:', err)
+    const ok = await checkApiReachable()
+    isOnline.value = ok
     if (!rows.value.length) {
       const { hadCache: restored } = await loadFromIndexedDBCache()
       catalogOffline.value = restored || rows.value.length > 0
-      isOnline.value = false
       if (!rows.value.length) {
-        apiError.value = 'Server bilan bog‘lanib bo‘lmadi va lokal kesh bo‘sh.'
+        apiError.value = ok
+          ? 'Mahsulotlar yuklanmadi. Qayta urinib ko‘ring.'
+          : 'Server bilan bog‘lanib bo‘lmadi va lokal kesh bo‘sh.'
       }
+    } else {
+      catalogOffline.value = !ok
     }
     markProductsDisplayed()
   }
 }
 
-async function fetchData({ background = false } = {}) {
+async function fetchData() {
   if (fetchInFlight) return fetchInFlight
 
   fetchInFlight = (async () => {
@@ -541,26 +528,25 @@ async function fetchData({ background = false } = {}) {
     if (cacheLoad.hadCache) {
       markProductsDisplayed()
       attachProductImagesOnce()
-    } else if (!background && !hasDisplayedProducts.value && !rows.value.length) {
-      setTableLoading(true)
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        refreshCatalogFromApi().catch((err) => {
+          console.warn('[products] fon yangilash:', err)
+        })
+      }
+      return
     }
 
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       isOnline.value = false
-      catalogOffline.value = cacheLoad.hadCache || rows.value.length > 0
-      if (!rows.value.length) {
-        apiError.value =
-          'Offline rejim — mahsulotlar keshda yo‘q. Avval backend yoqilgan holda Kassa yoki shu sahifani oching.'
-      }
+      catalogOffline.value = false
+      apiError.value =
+        'Offline rejim — mahsulotlar keshda yo‘q. Avval backend yoqilgan holda Kassa yoki shu sahifani oching.'
       markProductsDisplayed()
       return
     }
 
-    if (cacheLoad.hadCache && isCatalogCacheFresh(cacheLoad.syncedAt) && !background) {
-      refreshCatalogFromApi().catch((err) => {
-        console.warn('[products] fon yangilash:', err)
-      })
-      return
+    if (!hasDisplayedProducts.value && !rows.value.length) {
+      setTableLoading(true)
     }
 
     await refreshCatalogFromApi()
@@ -891,7 +877,11 @@ async function onConnectivityChanged(offline, { skipFetch = false } = {}) {
   } catch (err) {
     console.warn('[offline] mahsulot mutatsiyalari:', err)
   }
-  await fetchData({ background: true })
+  if (hasDisplayedProducts.value || rows.value.length) {
+    refreshCatalogFromApi().catch(() => {})
+    return
+  }
+  await fetchData()
 }
 
 function onSyncComplete() {
@@ -903,7 +893,10 @@ let skipFirstActivatedFetch = false
 function loadProductsPage() {
   if (rows.value.length || hasDisplayedProducts.value) {
     markProductsDisplayed()
-    return fetchData({ background: true })
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return Promise.resolve()
+    }
+    return refreshCatalogFromApi()
   }
   return fetchData()
 }
