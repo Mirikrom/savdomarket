@@ -1,12 +1,17 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import { POS_SHELL_QUERY_KEY, POS_SHELL_QUERY_VALUE } from '../../posShellQuery'
-import { isOfflineMode } from '../../offline/connectivity'
+import {
+  checkApiReachable,
+  isOfflineMode,
+  markApiReachable,
+  onConnectivityChange,
+} from '../../offline/connectivity'
 import { createOfflineDebtor, loadDebtorsMerged } from '../../offline/offlineDebtors'
 import { debtors as debtorsApi } from '../../services/debtors.service'
 import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
@@ -25,7 +30,13 @@ const isPosMode = computed(() => {
 })
 
 const rows = ref([])
-const loading = ref(true)
+const loading = ref(false)
+const hasDisplayedDebtors = ref(false)
+let fetchInFlight = null
+let lastSyncRefreshAt = 0
+let unsubscribeConnectivity = null
+
+const tableLoading = computed(() => loading.value && filteredRows.value.length === 0)
 const search = ref('')
 const createOpen = ref(false)
 const editOpen = ref(false)
@@ -120,28 +131,115 @@ const payModalTitle = computed(() => {
   return tr('page.debtors.payTitleNamed', { name: selected.value.name || '—' })
 })
 
-async function fetchDebtors() {
-  loading.value = true
-  try {
-    await hydrateOrganizationStore(org)
-    const { orgId } = await resolvePosIds(org)
-    if (isOfflineMode()) {
-      rows.value = orgId ? await loadDebtorsMerged(orgId) : []
-      return
+function debtorsIdsSignature(list) {
+  if (!list?.length) return ''
+  return list.map((d) => d.id).join(',')
+}
+
+function applyDebtorsListIfChanged(next) {
+  if (!Array.isArray(next)) return false
+  const nextSig = debtorsIdsSignature(next)
+  const curSig = debtorsIdsSignature(rows.value)
+  if (curSig && nextSig && curSig === nextSig) return false
+  rows.value = next
+  return true
+}
+
+function setTableLoading(active) {
+  if (active && hasDisplayedDebtors.value) return
+  loading.value = active
+}
+
+function markDebtorsDisplayed() {
+  loading.value = false
+  if (rows.value.length > 0) {
+    hasDisplayedDebtors.value = true
+  }
+}
+
+async function loadDebtorsFromCache() {
+  await hydrateOrganizationStore(org)
+  const { orgId } = await resolvePosIds(org)
+  if (!orgId) return { hadCache: false, orgId: null }
+
+  const merged = await loadDebtorsMerged(orgId)
+  if (!merged.length) return { hadCache: false, orgId }
+
+  applyDebtorsListIfChanged(merged)
+  return { hadCache: true, orgId }
+}
+
+async function refreshDebtorsFromApi() {
+  await hydrateOrganizationStore(org)
+  const { orgId } = await resolvePosIds(org)
+
+  const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine
+  if (browserOffline || isOfflineMode()) {
+    if (orgId) {
+      applyDebtorsListIfChanged(await loadDebtorsMerged(orgId))
     }
+    markDebtorsDisplayed()
+    return
+  }
+
+  try {
     const params = {}
     if (!isPosMode.value && search.value.trim()) params.q = search.value.trim()
-    rows.value = await debtorsApi.list(params)
+    const list = await debtorsApi.list(params)
+    markApiReachable()
+    applyDebtorsListIfChanged(list)
+    markDebtorsDisplayed()
+
     if (orgId) {
       const { syncDebtorsToIndexedDB } = await import('../../offline/fullSync')
-      await syncDebtorsToIndexedDB(orgId).catch(() => {})
+      syncDebtorsToIndexedDB(orgId).catch(() => {})
     }
-  } catch {
-    const { orgId } = await resolvePosIds(org)
-    rows.value = orgId ? await loadDebtorsMerged(orgId) : []
-  } finally {
-    loading.value = false
+  } catch (err) {
+    console.warn('[debtors] yuklash:', err)
+    if (orgId) {
+      applyDebtorsListIfChanged(await loadDebtorsMerged(orgId))
+    }
+    await checkApiReachable()
+    markDebtorsDisplayed()
   }
+}
+
+async function fetchDebtors({ background = false } = {}) {
+  if (fetchInFlight) return fetchInFlight
+
+  fetchInFlight = (async () => {
+    const cacheLoad = await loadDebtorsFromCache()
+    if (cacheLoad.hadCache) {
+      markDebtorsDisplayed()
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        refreshDebtorsFromApi().catch(() => {})
+      }
+      return
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      markDebtorsDisplayed()
+      return
+    }
+
+    if (!background && !hasDisplayedDebtors.value && !rows.value.length) {
+      setTableLoading(true)
+    }
+
+    await refreshDebtorsFromApi()
+  })().finally(() => {
+    fetchInFlight = null
+  })
+
+  return fetchInFlight
+}
+
+function onSyncComplete() {
+  if (fetchInFlight) return
+  const now = Date.now()
+  if (now - lastSyncRefreshAt < 4000) return
+  lastSyncRefreshAt = now
+  refreshDebtorsFromApi().catch(() => {})
 }
 
 function resetCreateForm() {
@@ -284,7 +382,32 @@ async function submitPay() {
   }
 }
 
-onMounted(fetchDebtors)
+onMounted(async () => {
+  await fetchDebtors()
+
+  let skipInitialConnectivity = true
+  unsubscribeConnectivity = onConnectivityChange((offline) => {
+    const skip = skipInitialConnectivity
+    skipInitialConnectivity = false
+    if (offline) {
+      loadDebtorsFromCache().then(() => markDebtorsDisplayed())
+      return
+    }
+    if (skip) return
+    if (hasDisplayedDebtors.value || rows.value.length) {
+      refreshDebtorsFromApi().catch(() => {})
+    } else {
+      fetchDebtors({ background: true }).catch(() => {})
+    }
+  })
+
+  window.addEventListener('savdopro:sync-complete', onSyncComplete)
+})
+
+onUnmounted(() => {
+  unsubscribeConnectivity?.()
+  window.removeEventListener('savdopro:sync-complete', onSyncComplete)
+})
 </script>
 
 <template>
@@ -336,7 +459,7 @@ onMounted(fetchDebtors)
       <DataTable
         :columns="columns"
         :rows="filteredRows"
-        :loading="loading"
+        :loading="tableLoading"
         :actions-label="tr('page.debtors.colActions')"
         :empty-text="isPosMode ? tr('page.debtors.posEmpty') : tr('page.debtors.empty')"
       >

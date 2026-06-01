@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
@@ -10,6 +10,17 @@ import PageHeader from '../../components/PageHeader.vue'
 import { useHardwareBarcodeScanner } from '../../composables/useHardwareBarcodeScanner'
 import { findProductByScanCode, normalizeScanCode } from '../../lib/barcodeScan'
 import { sortProductsForDisplay } from '../../lib/productSort'
+import {
+  loadCatalogFromIndexedDB,
+  persistCatalogToIndexedDB,
+} from '../../offline/catalogSync'
+import {
+  checkApiReachable,
+  isOfflineMode,
+  markApiReachable,
+  onConnectivityChange,
+} from '../../offline/connectivity'
+import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
 import { attachCachedImagesToProducts, resolveProductImageSrc } from '../../offline/imageCache'
 import { useI18n } from '../../i18n'
 import { categories, products as productsApi } from '../../services/catalog.service'
@@ -24,7 +35,12 @@ const org = useOrganizationStore()
 const { tr, locale, branchLabel } = useI18n()
 
 const rows = ref([])
-const loading = ref(true)
+const loading = ref(false)
+const hasDisplayedProducts = ref(false)
+let fetchInFlight = null
+let lastSyncRefreshAt = 0
+let branchFilterReady = false
+let unsubscribeConnectivity = null
 const search = ref('')
 const branchFilter = ref('')
 const modalOpen = ref(false)
@@ -109,6 +125,8 @@ const filteredRows = computed(() => {
   )
 })
 
+const tableLoading = computed(() => loading.value && filteredRows.value.length === 0)
+
 const lineTotal = computed(() => {
   const q = Number(receiptForm.quantity || 0)
   const c = Number(receiptForm.unit_cost || 0)
@@ -155,45 +173,183 @@ function onHardwareScanEnter() {
 
 useHardwareBarcodeScanner({
   onScan: (code) => processScanCode(code),
-  isActive: () => !modalOpen.value && !scannerOpen.value && !loading.value,
+  isActive: () => !modalOpen.value && !scannerOpen.value && !tableLoading.value,
 })
 
-async function fetchData() {
-  loading.value = true
+function productIdsSignature(list) {
+  if (!list?.length) return ''
+  return list.map((p) => p.id).join(',')
+}
+
+function applyRowsIfChanged(next) {
+  if (!Array.isArray(next)) return false
+  const nextSig = productIdsSignature(next)
+  const curSig = productIdsSignature(rows.value)
+  if (curSig && nextSig && curSig === nextSig) return false
+  rows.value = sortProductsForDisplay(next)
+  return true
+}
+
+function setTableLoading(active) {
+  if (active && hasDisplayedProducts.value) return
+  loading.value = active
+}
+
+function markProductsDisplayed() {
+  loading.value = false
+  if (rows.value.length > 0) {
+    hasDisplayedProducts.value = true
+  }
+}
+
+function mergeCatalogRows(pList, cList, stockByProduct) {
+  const catMap = Object.fromEntries((cList || []).map((c) => [c.id, c.name]))
+  return (pList || []).map((p) => {
+    const stock = stockByProduct[p.id]
+    return {
+      ...p,
+      _categoryName: catMap[p.category] || '—',
+      _stockQty: Number(stock?.quantity ?? 0),
+      _stockLow: Boolean(stock?.is_low),
+    }
+  })
+}
+
+let attachImagesPromise = null
+
+function attachProductImagesOnce() {
+  if (!rows.value.length) return Promise.resolve()
+  if (attachImagesPromise) return attachImagesPromise
+  attachImagesPromise = attachCachedImagesToProducts(rows.value)
+    .then((next) => {
+      const curSig = productIdsSignature(rows.value)
+      const nextSig = productIdsSignature(next)
+      if (curSig === nextSig) {
+        const hasNewUrls = next.some(
+          (p, i) => p._cachedImageUrl && p._cachedImageUrl !== rows.value[i]?._cachedImageUrl,
+        )
+        if (hasNewUrls) {
+          rows.value = sortProductsForDisplay(next)
+        }
+      } else {
+        rows.value = sortProductsForDisplay(next)
+      }
+    })
+    .finally(() => {
+      attachImagesPromise = null
+    })
+  return attachImagesPromise
+}
+
+async function loadReceiptFromCache() {
+  await hydrateOrganizationStore(org)
+  const { orgId, branchId } = await resolvePosIds(org)
+  if (!orgId) return { hadCache: false, orgId: null, branchId: null }
+
+  const bid = branchFilter.value ? Number(branchFilter.value) : branchId
+  const cached = await loadCatalogFromIndexedDB(orgId, bid, {
+    refreshFromApi: false,
+    skipPrune: true,
+  })
+  if (!cached.hasCache && !cached.products?.length) {
+    return { hadCache: false, orgId, branchId: bid }
+  }
+
+  const stockByProduct = {}
+  for (const [pid, qty] of Object.entries(cached.stockMap || {})) {
+    stockByProduct[pid] = { quantity: qty, is_low: false }
+  }
+
+  const merged = mergeCatalogRows(cached.products, cached.categories, stockByProduct)
+  applyRowsIfChanged(merged)
+  attachProductImagesOnce()
+  return { hadCache: true, orgId, branchId: bid }
+}
+
+async function refreshReceiptFromApi() {
   apiError.value = ''
+  await hydrateOrganizationStore(org)
+  const { orgId, branchId } = await resolvePosIds(org)
+  const branchIdForStock = branchFilter.value || org.currentBranchId || branchId
+
+  const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine
+  if (browserOffline || isOfflineMode()) {
+    await loadReceiptFromCache()
+    markProductsDisplayed()
+    return
+  }
+
   try {
-    const branchId = branchFilter.value || org.currentBranchId
     const [pList, cList, stockData] = await Promise.all([
       productsApi.list(),
       categories.list(),
-      branchId
-        ? stockLevels.list({ branch: branchId })
+      branchIdForStock
+        ? stockLevels.list({ branch: branchIdForStock })
         : Promise.resolve({ results: [], summary: {} }),
     ])
 
-    const catMap = Object.fromEntries((cList || []).map((c) => [c.id, c.name]))
+    markApiReachable()
     const stockByProduct = {}
     for (const row of stockData.results || []) {
       stockByProduct[row.product] = row
     }
 
-    const merged = (pList || []).map((p) => {
-      const stock = stockByProduct[p.id]
-      return {
-        ...p,
-        _categoryName: catMap[p.category] || '—',
-        _stockQty: Number(stock?.quantity ?? 0),
-        _stockLow: Boolean(stock?.is_low),
-      }
-    })
+    const merged = mergeCatalogRows(pList, cList, stockByProduct)
+    applyRowsIfChanged(merged)
+    markProductsDisplayed()
+    attachProductImagesOnce()
 
-    rows.value = sortProductsForDisplay(await attachCachedImagesToProducts(merged))
+    if (orgId && branchIdForStock) {
+      persistCatalogToIndexedDB(orgId, branchIdForStock, pList, cList, stockData).catch(() => {})
+    }
   } catch (error) {
+    console.warn('[receipt] yuklash:', error)
     const data = error?.response?.data
-    apiError.value = data?.detail || tr('page.receipt.loadError')
-  } finally {
-    loading.value = false
+    const restored = await loadReceiptFromCache()
+    if (!restored.hadCache) {
+      apiError.value = data?.detail || tr('page.receipt.loadError')
+    }
+    await checkApiReachable()
+    markProductsDisplayed()
   }
+}
+
+async function fetchData({ background = false } = {}) {
+  if (fetchInFlight) return fetchInFlight
+
+  fetchInFlight = (async () => {
+    const cacheLoad = await loadReceiptFromCache()
+    if (cacheLoad.hadCache) {
+      markProductsDisplayed()
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        refreshReceiptFromApi().catch(() => {})
+      }
+      return
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      markProductsDisplayed()
+      return
+    }
+
+    if (!background && !hasDisplayedProducts.value && !rows.value.length) {
+      setTableLoading(true)
+    }
+
+    await refreshReceiptFromApi()
+  })().finally(() => {
+    fetchInFlight = null
+  })
+
+  return fetchInFlight
+}
+
+function onSyncComplete() {
+  if (fetchInFlight) return
+  const now = Date.now()
+  if (now - lastSyncRefreshAt < 4000) return
+  lastSyncRefreshAt = now
+  refreshReceiptFromApi().catch(() => {})
 }
 
 function openReceiptModal(row) {
@@ -279,13 +435,47 @@ watch(
 )
 
 watch(branchFilter, () => {
-  if (branchFilter.value) fetchData()
+  if (!branchFilterReady || !branchFilter.value) return
+  if (hasDisplayedProducts.value || rows.value.length) {
+    loadReceiptFromCache()
+      .then((cacheLoad) => {
+        if (cacheLoad.hadCache) markProductsDisplayed()
+        refreshReceiptFromApi().catch(() => {})
+      })
+      .catch(() => refreshReceiptFromApi().catch(() => {}))
+    return
+  }
+  fetchData().catch(() => {})
 })
 
 onMounted(async () => {
   if (org.currentBranchId) branchFilter.value = String(org.currentBranchId)
+  branchFilterReady = true
   await fetchData()
   focusHardwareScan()
+
+  let skipInitialConnectivity = true
+  unsubscribeConnectivity = onConnectivityChange((offline) => {
+    const skip = skipInitialConnectivity
+    skipInitialConnectivity = false
+    if (offline) {
+      loadReceiptFromCache().then(() => markProductsDisplayed())
+      return
+    }
+    if (skip) return
+    if (hasDisplayedProducts.value || rows.value.length) {
+      refreshReceiptFromApi().catch(() => {})
+    } else {
+      fetchData({ background: true }).catch(() => {})
+    }
+  })
+
+  window.addEventListener('savdopro:sync-complete', onSyncComplete)
+})
+
+onUnmounted(() => {
+  unsubscribeConnectivity?.()
+  window.removeEventListener('savdopro:sync-complete', onSyncComplete)
 })
 
 watch(modalOpen, (open) => {
@@ -310,7 +500,7 @@ watch(scannerOpen, (open) => {
     <p v-if="successMsg" class="form-message form-message--success receipt-view__banner">
       {{ successMsg }}
     </p>
-    <p v-if="apiError && !loading && !modalOpen" class="form-message form-message--error receipt-view__banner">
+    <p v-if="apiError && !tableLoading && !modalOpen" class="form-message form-message--error receipt-view__banner">
       {{ apiError }}
     </p>
 
@@ -361,7 +551,7 @@ watch(scannerOpen, (open) => {
       <DataTable
         :columns="columns"
         :rows="filteredRows"
-        :loading="loading"
+        :loading="tableLoading"
         clickable
         actions-label=""
         :empty-text="tr('page.receipt.emptyTable')"
