@@ -320,11 +320,7 @@ async function logout() {
             <span>{{ tr('posShell.loading') }}</span>
           </div>
           <div v-else class="pos-content__view">
-            <RouterView v-slot="{ Component }">
-              <KeepAlive :max="8">
-                <component :is="Component" v-if="Component" />
-              </KeepAlive>
-            </RouterView>
+            <RouterView />
           </div>
         </div>
       </main>

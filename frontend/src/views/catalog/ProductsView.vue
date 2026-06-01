@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onActivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppModal from '../../components/AppModal.vue'
@@ -888,8 +888,6 @@ function onSyncComplete() {
   refreshFromSyncEvent().catch(() => {})
 }
 
-let skipFirstActivatedFetch = false
-
 function loadProductsPage() {
   if (rows.value.length || hasDisplayedProducts.value) {
     markProductsDisplayed()
@@ -902,7 +900,6 @@ function loadProductsPage() {
 }
 
 onMounted(() => {
-  skipFirstActivatedFetch = true
   loadProductsPage().catch(() => {})
 
   let skipInitialConnectivityFetch = true
@@ -912,15 +909,6 @@ onMounted(() => {
     onConnectivityChanged(offline, { skipFetch })
   })
   window.addEventListener('savdopro:sync-complete', onSyncComplete)
-})
-
-/** Kassa tablarida KeepAlive — qayta kirganda fon yangilash. */
-onActivated(() => {
-  if (skipFirstActivatedFetch) {
-    skipFirstActivatedFetch = false
-    return
-  }
-  loadProductsPage().catch(() => {})
 })
 
 onUnmounted(() => {
