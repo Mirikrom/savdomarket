@@ -4,6 +4,7 @@ import { getMeta, normalizeOrgId, savdoDb, setMeta, toPlainJson } from './db'
 import { isOfflineMode } from './connectivity'
 import {
   dedupeCatalogProductRows,
+  dedupeServerCatalogProducts,
   getPendingCatalogGuardIds,
   getProductIdMap,
   isPendingCatalogCategory,
@@ -49,7 +50,8 @@ export async function persistCatalogToIndexedDB(organizationId, branchId, pList,
 
   const stockRows = stockData?.results || stockData || []
   const now = Date.now()
-  const activeProducts = filterActiveProducts(pList)
+  const idMap = await getProductIdMap()
+  const activeProducts = dedupeServerCatalogProducts(filterActiveProducts(pList), idMap)
 
   const productRows = activeProducts.map((p) =>
     toPlainJson({

@@ -30,7 +30,10 @@ import {
 } from '../../offline/connectivity'
 import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
 import {
+  dedupeCatalogProductRows,
+  getPendingCatalogGuardIds,
   getPendingProductSyncMap,
+  getProductIdMap,
   offlineCreateCategory,
   offlineCreateProduct,
   offlineUpdateProduct,
@@ -351,7 +354,7 @@ async function loadFromIndexedDBCache({ skipPrune = false } = {}) {
   }
 
   const nextProducts = sortProductsForDisplay(cached.products)
-  applyProductsListIfChanged(nextProducts)
+  await applyProductsListIfChanged(nextProducts)
   if (cached.categories?.length || !categoryList.value.length) {
     categoryList.value = cached.categories
   }
@@ -387,16 +390,19 @@ function mergeCreatedProductRow(created) {
 }
 
 /** Ro‘yxat o‘zgarmagan bo‘lsa qayta chizmaydi (kesh → API ikki marta emas). */
-function applyProductsListIfChanged(pList) {
+async function applyProductsListIfChanged(pList) {
   if (!Array.isArray(pList)) {
     throw new Error('Mahsulotlar ro‘yxati noto‘g‘ri javob qaytardi')
   }
-  const nextSig = productIdsSignature(pList)
+  const guard = await getPendingCatalogGuardIds()
+  const idMap = await getProductIdMap()
+  const next = dedupeCatalogProductRows(pList, guard, idMap)
+  const nextSig = productIdsSignature(next)
   const curSig = productIdsSignature(rows.value)
   if (curSig && nextSig && curSig === nextSig) {
     return false
   }
-  rows.value = sortProductsForDisplay(pList)
+  rows.value = sortProductsForDisplay(next)
   return true
 }
 
@@ -471,7 +477,7 @@ async function refreshCatalogFromApi() {
     isOnline.value = true
     catalogOffline.value = false
 
-    applyProductsListIfChanged(pList)
+    await applyProductsListIfChanged(pList)
     if (cList?.length || !categoryList.value.length) {
       categoryList.value = cList || []
     }
@@ -878,11 +884,6 @@ async function onConnectivityChanged(offline, { skipFetch = false } = {}) {
     return
   }
   if (skipFetch) return
-  try {
-    await syncOfflineMutations()
-  } catch (err) {
-    console.warn('[offline] mahsulot mutatsiyalari:', err)
-  }
   if (hasDisplayedProducts.value || rows.value.length) {
     refreshCatalogFromApi().catch(() => {})
     return

@@ -112,29 +112,72 @@ async function deleteLocalProductById(productId) {
   }
 }
 
-/** Ro‘yxatda dublikat: serverdagi + eski vaqtincha yozuv. */
+function productNameKey(name) {
+  return (name || '').trim().toLowerCase()
+}
+
+function pickPreferredProductRow(a, b, idMap = {}) {
+  const idA = Number(a.id)
+  const idB = Number(b.id)
+  const mapped = new Set(Object.values(idMap).map((v) => Number(v)))
+  const aMapped = mapped.has(idA)
+  const bMapped = mapped.has(idB)
+  if (aMapped && !bMapped) return a
+  if (bMapped && !aMapped) return b
+  if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) {
+    return idA > idB ? a : b
+  }
+  const aCat = a.category != null && a.category !== ''
+  const bCat = b.category != null && b.category !== ''
+  if (aCat && !bCat) return a
+  if (bCat && !aCat) return b
+  return a
+}
+
+/** Server ro‘yxatida bir xil nomli dublikatlarni bitta qoldirish. */
+export function dedupeServerCatalogProducts(products, idMap = {}) {
+  const emptyGuard = { productTempIds: new Set(), pendingUpdateIds: new Set() }
+  return dedupeCatalogProductRows(products, emptyGuard, idMap)
+}
+
+/** Ro‘yxatda dublikat: vaqtincha (manfiy ID) + serverdagi takror nomlar. */
 export function dedupeCatalogProductRows(products, guard, idMap = {}) {
-  const positiveByName = new Map()
+  if (!Array.isArray(products) || !products.length) return []
+
+  const negatives = []
+  const positives = []
   for (const p of products) {
     const id = Number(p.id)
-    if (!Number.isFinite(id) || id < 0) continue
-    const nameKey = (p.name || '').trim().toLowerCase()
-    if (nameKey) positiveByName.set(nameKey, p)
+    if (Number.isFinite(id) && id < 0) negatives.push(p)
+    else positives.push(p)
   }
 
-  return products.filter((p) => {
+  const positiveNameKeys = new Set(
+    positives.map((p) => productNameKey(p.name)).filter(Boolean),
+  )
+
+  const filteredNegatives = negatives.filter((p) => {
     const id = Number(p.id)
-    if (!Number.isFinite(id) || id >= 0) return true
-
     if (idMap[String(id)]) return false
-
-    const nameKey = (p.name || '').trim().toLowerCase()
-    if (nameKey && positiveByName.has(nameKey)) return false
-
+    const key = productNameKey(p.name)
+    if (key && positiveNameKeys.has(key)) return false
     if (guard?.productTempIds?.has(id)) return true
-
     return false
   })
+
+  const byName = new Map()
+  const noName = []
+  for (const p of positives) {
+    const key = productNameKey(p.name)
+    if (!key) {
+      noName.push(p)
+      continue
+    }
+    const prev = byName.get(key)
+    byName.set(key, prev ? pickPreferredProductRow(prev, p, idMap) : p)
+  }
+
+  return [...noName, ...byName.values(), ...filteredNegatives]
 }
 
 async function replaceTempProductInMeta(orgId, tempId, created) {
@@ -406,9 +449,13 @@ export async function offlineCreateCategory(organizationId, { name }) {
   return row
 }
 
+let syncMutationsInFlight = null
+
 export async function syncOfflineMutations() {
   if (isOfflineMode()) return { synced: 0, failed: 0, skipped: true }
+  if (syncMutationsInFlight) return syncMutationsInFlight
 
+  syncMutationsInFlight = (async () => {
   const pending = await savdoDb.local_mutations.where('status').equals('pending').toArray()
   pending.sort((a, b) => (a.created_at || 0) - (b.created_at || 0))
 
@@ -418,6 +465,11 @@ export async function syncOfflineMutations() {
   let failed = 0
 
   for (const row of pending) {
+    const live = await savdoDb.local_mutations.get(row.client_uuid)
+    if (!live || live.status !== 'pending') continue
+
+    await savdoDb.local_mutations.update(row.client_uuid, { status: 'syncing' })
+
     try {
       const p = row.payload || {}
       if (row.kind === 'product_create') {
@@ -482,6 +534,10 @@ export async function syncOfflineMutations() {
     } catch (err) {
       console.warn('[offline] mutation sinxron:', row.kind, err?.response?.data || err?.message)
       failed += 1
+      const stuck = await savdoDb.local_mutations.get(row.client_uuid)
+      if (stuck?.status === 'syncing') {
+        await savdoDb.local_mutations.update(row.client_uuid, { status: 'pending' })
+      }
       if (!err?.response) break
     }
   }
@@ -500,4 +556,9 @@ export async function syncOfflineMutations() {
   }
 
   return { synced, failed }
+  })().finally(() => {
+    syncMutationsInFlight = null
+  })
+
+  return syncMutationsInFlight
 }
