@@ -455,10 +455,11 @@ async function refreshCatalogFromApi() {
   const branchIdForStock = org.currentBranchId
 
   try {
-    const [, pList, cList, stockData] = await Promise.all([
-      syncOfflineMutations().catch((err) => {
-        console.warn('[offline] kutilayotgan mahsulotlar sinxroni:', err)
-      }),
+    await syncOfflineMutations().catch((err) => {
+      console.warn('[offline] kutilayotgan mahsulotlar sinxroni:', err)
+    })
+
+    const [pList, cList, stockData] = await Promise.all([
       products.list(),
       categories.list(),
       branchIdForStock
@@ -564,6 +565,11 @@ async function refreshFromSyncEvent() {
   if (now - lastSyncRefreshAt < 4000) return
   lastSyncRefreshAt = now
   await refreshPendingSyncState()
+  if (hasDisplayedProducts.value || rows.value.length) {
+    await loadFromIndexedDBCache({ skipPrune: true })
+    markProductsDisplayed()
+    refreshCatalogFromApi().catch(() => {})
+  }
 }
 
 async function refreshStockForBranch() {

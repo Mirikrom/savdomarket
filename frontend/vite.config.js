@@ -62,6 +62,8 @@ export default defineConfig({
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/, /^\/media/, /^\/admin/],
         cleanupOutdatedCaches: true,
+        skipWaiting: true,
+        clientsClaim: true,
         // API keshi backend o‘chganda ham “onlayn” ko‘rsatardi — mahsulotlar IndexedDB dan.
       },
     }),

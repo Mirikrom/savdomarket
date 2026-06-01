@@ -114,22 +114,44 @@ async function deleteLocalProductById(productId) {
 
 /** Ro‘yxatda dublikat: serverdagi + eski vaqtincha yozuv. */
 export function dedupeCatalogProductRows(products, guard, idMap = {}) {
-  const positiveNameKeys = new Set(
-    products
-      .filter((p) => Number(p.id) > 0)
-      .map((p) => (p.name || '').trim().toLowerCase())
-      .filter(Boolean)
-  )
+  const positiveByName = new Map()
+  for (const p of products) {
+    const id = Number(p.id)
+    if (!Number.isFinite(id) || id < 0) continue
+    const nameKey = (p.name || '').trim().toLowerCase()
+    if (nameKey) positiveByName.set(nameKey, p)
+  }
 
   return products.filter((p) => {
     const id = Number(p.id)
     if (!Number.isFinite(id) || id >= 0) return true
-    if (guard?.productTempIds?.has(id)) return true
+
     if (idMap[String(id)]) return false
+
     const nameKey = (p.name || '').trim().toLowerCase()
-    if (nameKey && positiveNameKeys.has(nameKey)) return false
+    if (nameKey && positiveByName.has(nameKey)) return false
+
+    if (guard?.productTempIds?.has(id)) return true
+
     return false
   })
+}
+
+async function replaceTempProductInMeta(orgId, tempId, created) {
+  const metaKey = `catalog_products_${orgId}`
+  const metaRows = await getMeta(metaKey)
+  if (!Array.isArray(metaRows)) return
+
+  const tid = Number(tempId)
+  const next = metaRows.filter((p) => Number(p.id) !== tid)
+  next.push(
+    toPlainJson({
+      ...created,
+      organizationId: orgId,
+      organization: orgId,
+    }),
+  )
+  await setMeta(metaKey, next)
 }
 
 /** Serverdan o‘chganda yoki qo‘lda: mahsulot + vaqtincha nusxalarini keshdan olib tashlash. */
@@ -214,10 +236,21 @@ export async function pruneStaleOfflineCatalog(organizationId) {
   const metaKey = `catalog_products_${orgId}`
   const metaRows = await getMeta(metaKey)
   if (Array.isArray(metaRows) && metaRows.length) {
+    const positiveNames = new Set(
+      metaRows
+        .filter((p) => Number(p.id) > 0)
+        .map((p) => (p.name || '').trim().toLowerCase())
+        .filter(Boolean),
+    )
     const cleaned = metaRows.filter((p) => {
       const id = Number(p.id)
-      if (Number.isFinite(id) && id < 0 && !guard.productTempIds.has(id)) return false
-      return true
+      if (!Number.isFinite(id) || id >= 0) return true
+      if (guard.productTempIds.has(id)) {
+        const nameKey = (p.name || '').trim().toLowerCase()
+        if (nameKey && positiveNames.has(nameKey)) return false
+        return true
+      }
+      return false
     })
     if (cleaned.length !== metaRows.length) {
       await setMeta(metaKey, cleaned)
@@ -420,6 +453,7 @@ export async function syncOfflineMutations() {
               organization: row.organizationId,
             })
           )
+          await replaceTempProductInMeta(row.organizationId, p.tempId, created)
         }
       } else if (row.kind === 'product_update') {
         let pid = Number(p.productId)
