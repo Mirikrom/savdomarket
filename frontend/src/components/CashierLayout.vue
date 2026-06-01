@@ -315,12 +315,17 @@ async function logout() {
           <AppPreferencesBar dark-surface />
         </div>
         <div class="pos-content__body">
-          <div v-if="isLoading" class="pos-loading">
+          <div class="pos-content__view">
+            <RouterView />
+          </div>
+          <div
+            v-if="isLoading"
+            class="pos-loading pos-loading--overlay"
+            role="status"
+            aria-live="polite"
+          >
             <div class="pos-spinner" />
             <span>{{ tr('posShell.loading') }}</span>
-          </div>
-          <div v-else class="pos-content__view">
-            <RouterView />
           </div>
         </div>
       </main>
@@ -626,6 +631,7 @@ async function logout() {
 }
 
 .pos-content__body {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -649,6 +655,14 @@ async function logout() {
   padding: 80px;
   gap: 14px;
   color: var(--pos-muted);
+}
+
+.pos-loading--overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  padding: 0;
+  background: color-mix(in srgb, var(--pos-bg, #f8fafc) 92%, transparent);
 }
 
 .pos-spinner {

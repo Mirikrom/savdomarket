@@ -61,6 +61,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/, /^\/media/, /^\/admin/],
+        cleanupOutdatedCaches: true,
         // API keshi backend o‘chganda ham “onlayn” ko‘rsatardi — mahsulotlar IndexedDB dan.
       },
     }),
