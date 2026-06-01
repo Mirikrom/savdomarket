@@ -1138,7 +1138,12 @@ onUnmounted(() => {
 
           <label v-if="!editingId" class="field products-form__field-spaced">
             <span>Boshlang‘ich miqdor</span>
-            <input v-model="form.quantity" type="number" min="0" step="0.001" />
+            <input
+              v-model="form.quantity"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+            />
           </label>
 
           <label class="field products-form__field-spaced">
