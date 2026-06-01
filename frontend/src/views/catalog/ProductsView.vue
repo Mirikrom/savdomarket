@@ -724,8 +724,9 @@ async function submit() {
     if (!payload.branch && branchId) payload.branch = branchId
 
     if (isOfflineMode()) {
-      if (imageFile.value || clearProductImage.value) {
-        apiError.value = 'Offline: rasm server yoqilganda sinxronlanadi. Boshqa maydonlar saqlanadi.'
+      if (editingId.value && clearProductImage.value) {
+        apiError.value =
+          'Offline: rasmni o‘chirish server bilan bog‘langanda sinxronlanadi. Boshqa maydonlar saqlanadi.'
       }
       if (editingId.value) {
         await offlineUpdateProduct(editingId.value, payload, {

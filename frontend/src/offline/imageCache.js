@@ -23,6 +23,69 @@ export function resolveProductImageSrc(product) {
   return toAbsoluteMediaUrl(product.image_url || product.image || product.thumbnail)
 }
 
+/** Offline qo‘shilgan mahsulot rasmini lokal keshga yozish (jadvalda ko‘rinishi uchun). */
+export async function cacheLocalProductImageFile(productId, file) {
+  if (!file || typeof window === 'undefined') return ''
+  const pid = Number(productId)
+  if (!Number.isFinite(pid)) return ''
+
+  const blob = file instanceof Blob ? file : null
+  if (!blob) return ''
+
+  await savdoDb.product_images.put({
+    productId: pid,
+    blob,
+    updated_at: Date.now(),
+  })
+
+  const prev = blobUrlByProductId.get(pid)
+  if (prev) URL.revokeObjectURL(prev)
+  const url = URL.createObjectURL(blob)
+  blobUrlByProductId.set(pid, url)
+  return url
+}
+
+export async function getLocalProductImageFile(productId) {
+  const row = await savdoDb.product_images.get(Number(productId))
+  if (!row?.blob) return null
+  const type = row.blob.type || 'image/jpeg'
+  if (row.blob instanceof File) return row.blob
+  return new File([row.blob], `product-${productId}.jpg`, { type })
+}
+
+export async function migrateProductImageCache(fromId, toId) {
+  const from = Number(fromId)
+  const to = Number(toId)
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return
+
+  const row = await savdoDb.product_images.get(from)
+  if (!row?.blob) return
+
+  await savdoDb.product_images.put({
+    productId: to,
+    blob: row.blob,
+    updated_at: Date.now(),
+  })
+  await savdoDb.product_images.delete(from)
+
+  const prevFrom = blobUrlByProductId.get(from)
+  if (prevFrom) URL.revokeObjectURL(prevFrom)
+  blobUrlByProductId.delete(from)
+
+  const prevTo = blobUrlByProductId.get(to)
+  if (prevTo) URL.revokeObjectURL(prevTo)
+  blobUrlByProductId.set(to, URL.createObjectURL(row.blob))
+}
+
+export async function deleteLocalProductImage(productId) {
+  const id = Number(productId)
+  if (!Number.isFinite(id)) return
+  await savdoDb.product_images.delete(id).catch(() => {})
+  const prev = blobUrlByProductId.get(id)
+  if (prev) URL.revokeObjectURL(prev)
+  blobUrlByProductId.delete(id)
+}
+
 export async function attachCachedImagesToProducts(products) {
   if (!products?.length) return products
   const ids = products.map((p) => p.id)

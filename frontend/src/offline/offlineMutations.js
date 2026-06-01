@@ -1,5 +1,11 @@
 import { categories, products as productsApi } from '../services/catalog.service'
 import { isOfflineMode } from './connectivity'
+import {
+  cacheLocalProductImageFile,
+  deleteLocalProductImage,
+  getLocalProductImageFile,
+  migrateProductImageCache,
+} from './imageCache'
 import { getMeta, normalizeOrgId, savdoDb, setMeta, toPlainJson } from './db'
 import { localDateTimeIso } from '../lib/localDateTime'
 import { newClientUuid } from './offlineSales'
@@ -106,6 +112,7 @@ async function deleteLocalProductById(productId) {
   const id = Number(productId)
   if (!Number.isFinite(id)) return
   await savdoDb.products.delete(id).catch(() => {})
+  await deleteLocalProductImage(id)
   const stockRows = await savdoDb.stockLevels.where('productId').equals(id).toArray()
   for (const s of stockRows) {
     await savdoDb.stockLevels.delete({ branchId: s.branchId, productId: id }).catch(() => {})
@@ -406,6 +413,11 @@ export async function offlineCreateProduct(organizationId, payload, { imageFile 
 
   await savdoDb.products.put(row)
 
+  if (imageFile instanceof File) {
+    const url = await cacheLocalProductImageFile(tempId, imageFile)
+    if (url) row._cachedImageUrl = url
+  }
+
   const branchId = await resolveBranchIdForProduct(payload)
   if (branchId) {
     await upsertLocalStockLevel(branchId, tempId, payload.initial_quantity ?? 0)
@@ -427,6 +439,15 @@ export async function offlineUpdateProduct(productId, payload, { imageFile, clea
     _offlinePending: true,
   })
   await savdoDb.products.put(updated)
+
+  if (imageFile instanceof File) {
+    const url = await cacheLocalProductImageFile(Number(productId), imageFile)
+    if (url) updated._cachedImageUrl = url
+  } else if (clearImage) {
+    await deleteLocalProductImage(Number(productId))
+    updated._cachedImageUrl = ''
+  }
+
   await queueMutation(
     'product_update',
     { productId: Number(productId), payload, clearImage: Boolean(clearImage), hasImage: Boolean(imageFile) },
@@ -482,7 +503,7 @@ export async function syncOfflineMutations() {
           synced += 1
           continue
         }
-        const created = await productsApi.create({
+        const createPayload = {
           name: p.name,
           category: resolveCategoryId(p.category, catMap),
           sku: p.sku || '',
@@ -493,10 +514,17 @@ export async function syncOfflineMutations() {
           min_stock: p.min_stock ?? 0,
           branch: p.branch || null,
           initial_quantity: p.initial_quantity ?? 0,
-        })
+        }
+        const createOpts = {}
+        if (p.hasImage && p.tempId != null) {
+          const imageFile = await getLocalProductImageFile(p.tempId)
+          if (imageFile) createOpts.image = imageFile
+        }
+        const created = await productsApi.create(createPayload, createOpts)
         if (p.tempId != null) {
           idMap[String(p.tempId)] = created.id
           await migrateLocalStockProductId(p.tempId, created.id)
+          if (p.hasImage) await migrateProductImageCache(p.tempId, created.id)
           await deleteLocalProductById(p.tempId)
           await savdoDb.products.put(
             toPlainJson({
@@ -514,7 +542,13 @@ export async function syncOfflineMutations() {
         if (payload.category != null) {
           payload.category = resolveCategoryId(payload.category, catMap)
         }
-        await productsApi.update(pid, payload)
+        const updateOpts = {}
+        if (p.hasImage) {
+          const imageFile = await getLocalProductImageFile(pid)
+          if (imageFile) updateOpts.image = imageFile
+        }
+        if (p.clearImage) updateOpts.clearImage = true
+        await productsApi.update(pid, payload, updateOpts)
       } else if (row.kind === 'category_create') {
         const created = await categories.create({ name: p.name })
         if (p.tempId != null) {
