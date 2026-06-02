@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import AppModal from '../../components/AppModal.vue'
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import SyncStatusIcon from '../../components/SyncStatusIcon.vue'
 import { POS_SHELL_QUERY_KEY, POS_SHELL_QUERY_VALUE } from '../../posShellQuery'
 import {
   checkApiReachable,
@@ -13,6 +14,12 @@ import {
   onConnectivityChange,
 } from '../../offline/connectivity'
 import { createOfflineDebtor, loadDebtorsMerged } from '../../offline/offlineDebtors'
+import {
+  countPendingDebtorSyncItems,
+  saveOfflineDebtPayment,
+} from '../../offline/offlineDebtPayments'
+import { countPendingSales } from '../../offline/offlineSales'
+import { runPendingOfflineSync } from '../../offline/syncScheduler'
 import { debtors as debtorsApi } from '../../services/debtors.service'
 import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
 import { useApiNotify } from '../../composables/useApiNotify'
@@ -30,10 +37,10 @@ const isPosMode = computed(() => {
 })
 
 const rows = ref([])
+const pendingSyncCount = ref(0)
 const loading = ref(false)
 const hasDisplayedDebtors = ref(false)
 let fetchInFlight = null
-let lastSyncRefreshAt = 0
 let unsubscribeConnectivity = null
 
 const tableLoading = computed(() => loading.value && filteredRows.value.length === 0)
@@ -68,7 +75,17 @@ const payForm = reactive({
 
 const dateLocale = computed(() => numberLocaleForUi(locale.value))
 
+const syncStatusLabelMap = computed(() => ({
+  pending: tr('page.debtors.sync.pending'),
+  synced: tr('page.debtors.sync.synced'),
+}))
+
+function debtorSyncIconKind(status) {
+  return status === 'pending' ? 'pending' : 'synced'
+}
+
 const columns = computed(() => [
+  { key: '_syncStatus', label: tr('page.debtors.colSync'), width: '52px' },
   { key: 'name', label: tr('page.debtors.colName'), width: isPosMode.value ? '160px' : '180px' },
   { key: 'first_credit_at', label: tr('page.debtors.colTakenAt'), width: '110px' },
   { key: 'total_credit', label: tr('page.debtors.colTotal'), width: '110px' },
@@ -131,18 +148,35 @@ const payModalTitle = computed(() => {
   return tr('page.debtors.payTitleNamed', { name: selected.value.name || '—' })
 })
 
-function debtorsIdsSignature(list) {
+function debtorsListSignature(list) {
   if (!list?.length) return ''
-  return list.map((d) => d.id).join(',')
+  return list
+    .map((d) =>
+      [
+        d.id,
+        d.balance_due,
+        d.total_paid,
+        d.total_credit,
+        d._syncStatus,
+        d._offlinePending ? 1 : 0,
+      ].join(':'),
+    )
+    .join('|')
 }
 
 function applyDebtorsListIfChanged(next) {
   if (!Array.isArray(next)) return false
-  const nextSig = debtorsIdsSignature(next)
-  const curSig = debtorsIdsSignature(rows.value)
+  const nextSig = debtorsListSignature(next)
+  const curSig = debtorsListSignature(rows.value)
   if (curSig && nextSig && curSig === nextSig) return false
   rows.value = next
   return true
+}
+
+/** Offline to‘lov/yaratishdan keyin jadvalni majburan yangilash */
+function setDebtorsRows(next) {
+  if (!Array.isArray(next)) return
+  rows.value = next
 }
 
 function setTableLoading(active) {
@@ -157,12 +191,31 @@ function markDebtorsDisplayed() {
   }
 }
 
+async function refreshPendingSyncCount() {
+  const [debtorItems, sales] = await Promise.all([
+    countPendingDebtorSyncItems(),
+    countPendingSales(),
+  ])
+  pendingSyncCount.value = debtorItems + sales
+}
+
+async function syncPendingNow() {
+  if (isOfflineMode()) return
+  try {
+    await runPendingOfflineSync()
+    await onSyncComplete()
+  } catch (err) {
+    console.warn('[debtors] sinxronlash:', err)
+  }
+}
+
 async function loadDebtorsFromCache() {
   await hydrateOrganizationStore(org)
   const { orgId } = await resolvePosIds(org)
   if (!orgId) return { hadCache: false, orgId: null }
 
   const merged = await loadDebtorsMerged(orgId)
+  await refreshPendingSyncCount()
   if (!merged.length) return { hadCache: false, orgId }
 
   applyDebtorsListIfChanged(merged)
@@ -176,8 +229,9 @@ async function refreshDebtorsFromApi() {
   const browserOffline = typeof navigator !== 'undefined' && !navigator.onLine
   if (browserOffline || isOfflineMode()) {
     if (orgId) {
-      applyDebtorsListIfChanged(await loadDebtorsMerged(orgId))
+      setDebtorsRows(await loadDebtorsMerged(orgId))
     }
+    await refreshPendingSyncCount()
     markDebtorsDisplayed()
     return
   }
@@ -185,21 +239,24 @@ async function refreshDebtorsFromApi() {
   try {
     const params = {}
     if (!isPosMode.value && search.value.trim()) params.q = search.value.trim()
-    const list = await debtorsApi.list(params)
+    await debtorsApi.list(params)
     markApiReachable()
-    applyDebtorsListIfChanged(list)
-    markDebtorsDisplayed()
 
     if (orgId) {
       const { syncDebtorsToIndexedDB } = await import('../../offline/fullSync')
-      syncDebtorsToIndexedDB(orgId).catch(() => {})
+      await syncDebtorsToIndexedDB(orgId)
+      setDebtorsRows(await loadDebtorsMerged(orgId))
     }
+
+    await refreshPendingSyncCount()
+    markDebtorsDisplayed()
   } catch (err) {
     console.warn('[debtors] yuklash:', err)
     if (orgId) {
-      applyDebtorsListIfChanged(await loadDebtorsMerged(orgId))
+      setDebtorsRows(await loadDebtorsMerged(orgId))
     }
     await checkApiReachable()
+    await refreshPendingSyncCount()
     markDebtorsDisplayed()
   }
 }
@@ -234,12 +291,23 @@ async function fetchDebtors({ background = false } = {}) {
   return fetchInFlight
 }
 
-function onSyncComplete() {
-  if (fetchInFlight) return
-  const now = Date.now()
-  if (now - lastSyncRefreshAt < 4000) return
-  lastSyncRefreshAt = now
-  refreshDebtorsFromApi().catch(() => {})
+async function onSyncComplete() {
+  await hydrateOrganizationStore(org)
+  const { orgId } = await resolvePosIds(org)
+  if (!orgId) return
+
+  try {
+    if (!isOfflineMode()) {
+      const { syncDebtorsToIndexedDB } = await import('../../offline/fullSync')
+      await syncDebtorsToIndexedDB(orgId)
+    }
+    setDebtorsRows(await loadDebtorsMerged(orgId))
+    await refreshPendingSyncCount()
+    markDebtorsDisplayed()
+  } catch (err) {
+    console.warn('[debtors] sinxron tugagach yangilash:', err)
+    refreshDebtorsFromApi().catch(() => {})
+  }
 }
 
 function resetCreateForm() {
@@ -277,11 +345,13 @@ async function submitCreate() {
     }
     if (isOfflineMode()) {
       await createOfflineDebtor(orgId, payload)
+      setDebtorsRows(await loadDebtorsMerged(orgId))
+      await refreshPendingSyncCount()
     } else {
       await debtorsApi.create(payload)
+      await fetchDebtors()
     }
     createOpen.value = false
-    await fetchDebtors()
   } catch (error) {
     apiError.value = error?.response?.data?.name?.[0] || error?.response?.data?.detail || tr('page.debtors.errSaveFailed')
   } finally {
@@ -365,18 +435,35 @@ async function submitPay() {
   }
   saving.value = true
   try {
-    const result = await debtorsApi.pay(selected.value.id, {
+    const { orgId } = await resolvePosIds(org)
+    const paymentPayload = {
       branch: org.currentBranchId,
       amount: payForm.amount,
       method: payForm.method,
       note: payForm.note,
-    })
-    const idx = rows.value.findIndex((r) => r.id === selected.value.id)
-    if (idx >= 0 && result.debtor) rows.value[idx] = result.debtor
+    }
+
+    if (isOfflineMode()) {
+      if (!orgId) {
+        apiError.value = tr('page.debtors.errNoBranch')
+        return
+      }
+      await saveOfflineDebtPayment(orgId, selected.value, paymentPayload)
+      setDebtorsRows(await loadDebtorsMerged(orgId))
+      await refreshPendingSyncCount()
+    } else {
+      const result = await debtorsApi.pay(selected.value.id, paymentPayload)
+      const idx = rows.value.findIndex((r) => r.id === selected.value.id)
+      if (idx >= 0 && result.debtor) rows.value[idx] = result.debtor
+    }
     payOpen.value = false
   } catch (error) {
     const data = error?.response?.data
-    apiError.value = data?.amount?.[0] || data?.detail || tr('page.debtors.errPayFailed')
+    apiError.value =
+      error?.message ||
+      data?.amount?.[0] ||
+      data?.detail ||
+      (isOfflineMode() ? tr('page.debtors.errPayOffline') : tr('page.debtors.errPayFailed'))
   } finally {
     saving.value = false
   }
@@ -384,6 +471,10 @@ async function submitPay() {
 
 onMounted(async () => {
   await fetchDebtors()
+  await refreshPendingSyncCount()
+  if (!isOfflineMode() && pendingSyncCount.value > 0) {
+    syncPendingNow().catch(() => {})
+  }
 
   let skipInitialConnectivity = true
   unsubscribeConnectivity = onConnectivityChange((offline) => {
@@ -394,10 +485,9 @@ onMounted(async () => {
       return
     }
     if (skip) return
-    if (hasDisplayedDebtors.value || rows.value.length) {
-      refreshDebtorsFromApi().catch(() => {})
-    } else {
-      fetchDebtors({ background: true }).catch(() => {})
+    refreshDebtorsFromApi().catch(() => {})
+    if (pendingSyncCount.value > 0) {
+      syncPendingNow().catch(() => {})
     }
   })
 
@@ -463,6 +553,12 @@ onUnmounted(() => {
         :actions-label="tr('page.debtors.colActions')"
         :empty-text="isPosMode ? tr('page.debtors.posEmpty') : tr('page.debtors.empty')"
       >
+        <template #cell:_syncStatus="{ row }">
+          <SyncStatusIcon
+            :kind="debtorSyncIconKind(row._syncStatus)"
+            :label="syncStatusLabelMap[row._syncStatus] || row._syncStatus"
+          />
+        </template>
         <template #cell:name="{ row }">
           <div class="debtor-name-cell">
             <strong>{{ row.name }}</strong>

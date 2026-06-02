@@ -17,6 +17,7 @@ function isBrowserOffline() {
 
 function isApiUpStatus(status) {
   if (!status) return false
+  if (status === 401 || status === 403) return false
   if (status === 502 || status === 503 || status === 504) return false
   return status >= 200 && status < 500
 }
@@ -150,9 +151,10 @@ export function markApiUnreachable() {
 }
 
 export function markApiReachable() {
-  if (apiReachable) return
+  const wasDown = !apiReachable
   apiReachable = true
-  notifyIfChanged()
+  probeAuthPaused = false
+  if (wasDown) notifyIfChanged()
 }
 
 export function isNetworkError(error) {

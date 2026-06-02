@@ -625,6 +625,7 @@ async function submitSale() {
     refreshOnlineState()
     await loadCatalogFromCache()
     await refreshPendingCount()
+    if (isCredit) await fetchDebtors()
   }
 
   if (isOfflineMode()) {

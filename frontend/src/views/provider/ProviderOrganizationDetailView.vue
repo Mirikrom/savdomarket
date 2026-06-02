@@ -3,10 +3,15 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiNotify } from '../../composables/useApiNotify'
+import { enterClientStore } from '../../lib/providerStoreAccess'
 import providerService from '../../services/provider.service'
+import { useAuthStore } from '../../stores/auth'
+import { useOrganizationStore } from '../../stores/organization'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
+const orgStore = useOrganizationStore()
 const { showApiError } = useApiNotify()
 
 const org = ref(null)
@@ -171,8 +176,22 @@ async function submitChangePlan() {
   }
 }
 
+async function enterStore() {
+  if (!org.value?.is_active) return
+  try {
+    await enterClientStore(router, auth, orgStore, org.value)
+  } catch (err) {
+    showApiError(err)
+  }
+}
+
 async function impersonate() {
-  if (!confirm(`"${org.value.name}" tashkilotiga owner sifatida kirasizmi? Sizning hozirgi sessiyangiz almashtiriladi.`)) return
+  if (
+    !confirm(
+      `"${org.value.name}" owner akkauntiga JWT almashtiriladi. Super Admin sessiyasi yo‘qoladi. Davom etasizmi?`,
+    )
+  )
+    return
   try {
     const data = await providerService.orgs.impersonate(org.value.id)
     localStorage.setItem('access_token', data.access)
@@ -314,8 +333,11 @@ function dismissInviteBanner() {
           <button class="prov-btn prov-btn--ghost" @click="toggleActive">
             {{ org.is_active ? 'Bloklash' : 'Faollashtirish' }}
           </button>
-          <button class="prov-btn prov-btn--ghost" @click="impersonate">
-            Owner sifatida kirish
+          <button class="prov-btn prov-btn--primary" type="button" @click="enterStore">
+            Do‘konga kirish
+          </button>
+          <button class="prov-btn prov-btn--ghost" type="button" @click="impersonate">
+            Owner JWT (eski)
           </button>
           <button class="prov-btn prov-btn--ghost is-danger-text" type="button" @click="deleteOrg">
             Mijozni o‘chirish

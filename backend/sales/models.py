@@ -142,6 +142,7 @@ class DebtPayment(TimeStampedModel):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     method = models.CharField(max_length=16, choices=Method.choices, default=Method.CASH)
     note = models.CharField(max_length=255, blank=True)
+    client_uuid = models.UUIDField(null=True, blank=True, editable=False, db_index=True)
     received_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -151,6 +152,13 @@ class DebtPayment(TimeStampedModel):
     class Meta:
         ordering = ["-created_at", "-id"]
         indexes = [models.Index(fields=["organization", "debtor", "created_at"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "client_uuid"],
+                condition=models.Q(client_uuid__isnull=False),
+                name="uniq_debt_payment_client_uuid_per_org",
+            )
+        ]
 
     def __str__(self):
         return f"DebtPayment #{self.pk} — {self.debtor.name}: {self.amount}"

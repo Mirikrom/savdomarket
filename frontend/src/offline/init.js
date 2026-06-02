@@ -1,5 +1,5 @@
 import { checkApiReachable, onConnectivityChange, resumeConnectivityProbe } from './connectivity'
-import { scheduleFullSync, schedulePendingSalesSync } from './syncScheduler'
+import { runPendingOfflineSync, scheduleFullSync } from './syncScheduler'
 
 let listenersBound = false
 let probeTimer = null
@@ -20,10 +20,11 @@ async function getCtx(getContext) {
 }
 
 async function onBackOnline(getContext) {
+  await runPendingOfflineSync()
+
   const ctx = await getCtx(getContext)
   if (!ctx) return
 
-  await schedulePendingSalesSync()
   await scheduleFullSync(ctx.organizationId, ctx.branchId, {
     branches: ctx.branches,
     organization: ctx.organization,
@@ -39,7 +40,7 @@ async function probeConnectivity(getContext) {
   if (ok && offlineBefore) {
     await onBackOnline(getContext)
   } else if (ok) {
-    await schedulePendingSalesSync()
+    await runPendingOfflineSync()
   }
 }
 
@@ -82,6 +83,7 @@ export function stopOfflineProbe() {
 
 export { onConnectivityChange, checkApiReachable }
 export { bootAuthenticatedApp, bootstrapOfflineSession } from './sessionBootstrap'
-export { scheduleFullSync, schedulePendingSalesSync } from './syncScheduler'
+export { runPendingOfflineSync, scheduleFullSync, schedulePendingSalesSync } from './syncScheduler'
 export { syncAllOfflineData } from './fullSync'
 export { countPendingSales, syncOfflineSales } from './offlineSales'
+export { countPendingDebtorSyncItems, syncOfflineDebtPayments } from './offlineDebtPayments'

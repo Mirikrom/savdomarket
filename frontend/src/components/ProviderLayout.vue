@@ -122,7 +122,7 @@ function closeNav() {
       </nav>
 
       <div class="prov-sidebar__footer">
-        <button class="prov-back" @click="router.push('/app')">
+        <button class="prov-back" @click="router.push({ name: 'provider-enter-store' })">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 18 9 12 15 6" />
           </svg>
@@ -151,7 +151,10 @@ function closeNav() {
           </div>
 
           <div v-if="userMenuOpen" class="prov-user__menu" @click.stop>
-            <button class="prov-user__menu-item" @click="router.push('/app')">
+            <button
+              class="prov-user__menu-item"
+              @click="router.push({ name: 'provider-enter-store' })"
+            >
               {{ tr('provider.user.toApp') }}
             </button>
             <button class="prov-user__menu-item is-danger" @click="logout">

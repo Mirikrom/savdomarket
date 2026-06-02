@@ -1,18 +1,16 @@
 import { debtors as debtorsApi } from '../services/debtors.service'
 import { isOfflineMode } from './connectivity'
 import { loadDebtorsFromIndexedDB } from './fullSync'
-import { getMeta, normalizeOrgId, savdoDb, setMeta, toPlainJson } from './db'
+import { normalizeOrgId, savdoDb, toPlainJson } from './db'
+import { applyOfflineLedgerToDebtor, getOfflineDebtorLedger } from './offlineDebtLedger'
+import {
+  isLocalDebtorRef,
+  LOCAL_DEBTOR_PREFIX,
+  localDebtorRef,
+} from './offlineDebtorIds'
 import { newClientUuid } from './offlineSales'
 
-export const LOCAL_DEBTOR_PREFIX = 'local:'
-
-export function isLocalDebtorRef(value) {
-  return typeof value === 'string' && value.startsWith(LOCAL_DEBTOR_PREFIX)
-}
-
-export function localDebtorRef(clientUuid) {
-  return `${LOCAL_DEBTOR_PREFIX}${clientUuid}`
-}
+export { isLocalDebtorRef, LOCAL_DEBTOR_PREFIX, localDebtorRef }
 
 export async function createOfflineDebtor(organizationId, { name, phone = '', note = '', due_date = null }) {
   const orgId = normalizeOrgId(organizationId)
@@ -79,7 +77,11 @@ export async function loadDebtorsMerged(organizationId) {
       _client_uuid: p.client_uuid,
     }))
 
-  return [...cached, ...extra].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'uz'))
+  const merged = [...cached, ...extra]
+  const ledger = await getOfflineDebtorLedger(orgId)
+  return merged
+    .map((d) => applyOfflineLedgerToDebtor(d, ledger))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'uz'))
 }
 
 export async function syncOfflineDebtors() {
@@ -97,6 +99,7 @@ export async function syncOfflineDebtors() {
         name: row.name,
         phone: row.phone || '',
         note: row.note || '',
+        due_date: row.due_date || null,
         client_uuid: row.client_uuid,
       })
       await savdoDb.local_debtors.update(row.client_uuid, {

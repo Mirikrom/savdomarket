@@ -5,6 +5,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import AppPreferencesBar from './AppPreferencesBar.vue'
 import BrandLogo from './BrandLogo.vue'
 import CashierLayout from './CashierLayout.vue'
+import SupportModeBanner from './SupportModeBanner.vue'
 import { POS_SHELL_QUERY_KEY, POS_SHELL_QUERY_VALUE } from '../posShellQuery'
 import { useI18n } from '../i18n'
 import { useAuthStore } from '../stores/auth'
@@ -143,9 +144,14 @@ async function logout() {
     <div class="app-boot__inner">{{ tr('app.boot.loading') }}</div>
   </div>
 
-  <CashierLayout v-else-if="useCashierShell" />
+  <template v-else-if="useCashierShell">
+    <SupportModeBanner />
+    <CashierLayout />
+  </template>
 
-  <div v-else class="app-shell" :class="{ 'is-nav-open': navOpen }">
+  <div v-else class="app-layout-wrap">
+    <SupportModeBanner />
+    <div class="app-shell" :class="{ 'is-nav-open': navOpen }">
     <aside class="app-sidebar">
       <RouterLink
         to="/app/pos"
@@ -246,6 +252,7 @@ async function logout() {
     </div>
 
     <div v-if="navOpen" class="app-shell__backdrop" @click="navOpen = false" />
+    </div>
   </div>
 </template>
 

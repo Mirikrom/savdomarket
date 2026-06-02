@@ -29,6 +29,7 @@ const ProviderOrganizationDetailView = () =>
 const ProviderPlansView = () => import('../views/provider/ProviderPlansView.vue')
 const ProviderMijozlarView = () => import('../views/provider/ProviderMijozlarView.vue')
 const ProviderSettingsView = () => import('../views/provider/ProviderSettingsView.vue')
+const ProviderEnterStoreView = () => import('../views/provider/ProviderEnterStoreView.vue')
 
 const routes = [
   { path: '/', redirect: '/app' },
@@ -97,6 +98,11 @@ const routes = [
       },
       { path: 'users', redirect: '/provider/mijozlar' },
       { path: 'settings', name: 'provider-settings', component: ProviderSettingsView },
+      {
+        path: 'enter-store',
+        name: 'provider-enter-store',
+        component: ProviderEnterStoreView,
+      },
     ],
   },
 ]
@@ -118,6 +124,16 @@ router.beforeEach((to) => {
   // Provider zonasiga faqat superuser kira oladi.
   if (to.meta.providerOnly && token && !isProvider) {
     return { name: 'dashboard' }
+  }
+
+  // Superuser mijoz paneli: avval do'kon tanlash.
+  if (
+    isProvider &&
+    (to.path === '/app' || to.path.startsWith('/app/')) &&
+    localStorage.getItem('support_mode') !== '1' &&
+    !localStorage.getItem('organization_id')
+  ) {
+    return { name: 'provider-enter-store' }
   }
 
   // Superuser /app zonasiga kirsa, /provider'ga yo'naltiramiz (impersonate qilmagan bo'lsa).

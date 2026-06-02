@@ -169,18 +169,26 @@ def me(request):
     """
     from core.tenant import active_organization_memberships
 
+    from core.tenant import get_request_organization_id
+
+    org_header_id = get_request_organization_id(request)
     membership = get_membership(request)
-    if not membership:
+    if not membership and not request.user.is_superuser:
         membership = active_organization_memberships(request.user).order_by("id").first()
 
     memberships_qs = active_organization_memberships(request.user).order_by("id")
+    support_mode = bool(
+        request.user.is_superuser and org_header_id and membership is not None
+    )
 
     return Response(
         {
             "user": UserSerializer(request.user).data,
             "is_superuser": bool(request.user.is_superuser),
             "is_provider_admin": bool(request.user.is_superuser),
+            "support_mode": support_mode,
             "organization_id": membership.organization_id if membership else None,
+            "organization_name": membership.organization.name if membership else None,
             "role": membership.role.code if membership else None,
             "branch_id": membership.branch_id if membership else None,
             "memberships": [

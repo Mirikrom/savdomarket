@@ -1,12 +1,60 @@
-import { isOfflineMode } from './connectivity'
+import { checkApiReachable, isOfflineMode } from './connectivity'
 import { syncAllOfflineData } from './fullSync'
 import { syncOfflineSales } from './offlineSales'
+import { ensureSyncOrgContext } from './syncContext'
 
 const MIN_FULL_SYNC_MS = 3 * 60 * 1000
 
 let fullSyncPromise = null
 let lastSyncKey = ''
 let lastSyncAt = 0
+let pendingSyncPromise = null
+
+function dispatchSyncComplete(detail) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('savdopro:sync-complete', { detail }))
+  }
+}
+
+/** Kutilayotgan savdo, qarzdor va to‘lovlarni serverga yuborish. */
+export function runPendingOfflineSync() {
+  if (pendingSyncPromise) return pendingSyncPromise
+
+  pendingSyncPromise = (async () => {
+    if (isOfflineMode()) {
+      const ok = await checkApiReachable()
+      if (!ok) return { skipped: true, offline: true }
+    }
+
+    const { useOrganizationStore } = await import('../stores/organization')
+    const orgStore = useOrganizationStore()
+    const orgId = await ensureSyncOrgContext(orgStore)
+    if (!orgId) {
+      const missing = {
+        skipped: true,
+        reason: 'no_organization',
+        message: 'Tashkilot tanlanmagan. Sahifani yangilang yoki qayta kiring.',
+      }
+      dispatchSyncComplete(missing)
+      return missing
+    }
+
+    const result = await syncOfflineSales()
+    dispatchSyncComplete(result)
+    return result
+  })()
+    .catch((err) => {
+      console.warn('[offline] sinxron:', err)
+      const failed = { synced: 0, failed: 0, error: true }
+      dispatchSyncComplete(failed)
+      return failed
+    })
+    .finally(() => {
+      pendingSyncPromise = null
+    })
+
+  return pendingSyncPromise
+}
 
 export function scheduleFullSync(organizationId, branchId, { branches, organization, force = false } = {}) {
   if (!organizationId || !branchId) return Promise.resolve({ skipped: true })
@@ -31,9 +79,7 @@ export function scheduleFullSync(organizationId, branchId, { branches, organizat
       }
       lastSyncKey = key
       lastSyncAt = Date.now()
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('savdopro:sync-complete'))
-      }
+      dispatchSyncComplete(result)
       return result
     } finally {
       fullSyncPromise = null
@@ -44,5 +90,5 @@ export function scheduleFullSync(organizationId, branchId, { branches, organizat
 }
 
 export function schedulePendingSalesSync() {
-  return syncOfflineSales().catch(() => ({ synced: 0, failed: 0 }))
+  return runPendingOfflineSync()
 }

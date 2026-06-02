@@ -6,9 +6,11 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,
     organizationId: null,
+    organizationName: null,
     role: null,
     branchId: null,
     memberships: [],
+    supportMode: false,
     loaded: false,
     loading: false,
     error: null,
@@ -17,9 +19,9 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: () => !!localStorage.getItem('access_token'),
     isSuperuser: (state) => !!state.user?.is_superuser,
     isProviderAdmin: (state) => !!state.user?.is_superuser,
-    isOwner: (state) => state.role === 'owner',
+    isOwner: (state) => state.role === 'owner' || state.supportMode,
     /** Do‘kon egasi — to‘liq admin panel */
-    isAdmin: (state) => state.role === 'owner',
+    isAdmin: (state) => state.role === 'owner' || state.supportMode,
     /** Sotuvchi — kassa, mahsulot, kirim */
     isSeller: (state) => state.role === 'seller',
     /** @deprecated isSeller ishlating */
@@ -45,9 +47,11 @@ export const useAuthStore = defineStore('auth', {
         const { data } = await api.get('/accounts/me/')
         this.user = data.user
         this.organizationId = data.organization_id
+        this.organizationName = data.organization_name || null
         this.role = data.role
         this.branchId = data.branch_id
         this.memberships = data.memberships || []
+        this.supportMode = Boolean(data.support_mode)
         if (this.organizationId) {
           const nextOrg = String(this.organizationId)
           if (prevOrgId && prevOrgId !== nextOrg) {
@@ -91,12 +95,15 @@ export const useAuthStore = defineStore('auth', {
     reset() {
       this.user = null
       this.organizationId = null
+      this.organizationName = null
       this.role = null
       this.branchId = null
       this.memberships = []
+      this.supportMode = false
       this.loaded = false
       this.error = null
       localStorage.removeItem('organization_id')
+      localStorage.removeItem('support_mode')
       localStorage.removeItem('user_role')
       localStorage.removeItem('is_provider')
       localStorage.removeItem('cashier_display_name')

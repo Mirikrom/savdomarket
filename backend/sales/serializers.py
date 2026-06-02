@@ -426,6 +426,7 @@ class DebtPaymentCreateSerializer(serializers.Serializer):
         choices=DebtPayment.Method.choices, default=DebtPayment.Method.CASH
     )
     note = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    client_uuid = serializers.UUIDField(required=False, allow_null=True, write_only=True)
 
     def validate(self, attrs):
         membership = self.context.get("membership")
@@ -454,6 +455,14 @@ class DebtPaymentCreateSerializer(serializers.Serializer):
         membership = self.context["membership"]
         debtor = self.context["debtor"]
         request = self.context["request"]
+        client_uuid = validated_data.pop("client_uuid", None)
+        if client_uuid:
+            existing = DebtPayment.objects.filter(
+                organization=membership.organization,
+                client_uuid=client_uuid,
+            ).first()
+            if existing:
+                return existing
         return DebtPayment.objects.create(
             organization=membership.organization,
             branch=validated_data["branch"],
@@ -461,5 +470,6 @@ class DebtPaymentCreateSerializer(serializers.Serializer):
             amount=validated_data["amount"],
             method=validated_data["method"],
             note=validated_data.get("note", "") or "",
+            client_uuid=client_uuid,
             received_by=request.user,
         )

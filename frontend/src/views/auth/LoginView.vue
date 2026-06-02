@@ -5,6 +5,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AuthShell from '../../components/AuthShell.vue'
 import { useT } from '../../i18n'
 import { login } from '../../services/auth.service'
+import { resetStoreContextForProvider } from '../../lib/providerStoreAccess'
 import { useAuthStore } from '../../stores/auth'
 
 const router = useRouter()
@@ -45,6 +46,9 @@ async function submit() {
       /* ignore */
     }
     if (auth.isSuperuser) {
+      resetStoreContextForProvider()
+      auth.organizationId = null
+      auth.supportMode = false
       router.push('/provider')
     } else {
       router.push({ name: 'pos' })

@@ -10,6 +10,7 @@ import { routeWithPosShell } from '../posShellQuery'
 import { useI18n } from '../i18n'
 import { useAuthStore } from '../stores/auth'
 import { useOrganizationStore } from '../stores/organization'
+import { exitToProviderPanel } from '../lib/providerStoreAccess'
 import { logout as logoutService } from '../services/auth.service'
 
 const router = useRouter()
@@ -119,6 +120,15 @@ onUnmounted(() => {
 
 function onBranchChange(event) {
   org.setCurrentBranch(Number(event.target.value))
+}
+
+function goProviderPanel() {
+  userMenuOpen.value = false
+  if (auth.supportMode) {
+    exitToProviderPanel(router, auth)
+  } else {
+    router.push({ name: 'provider-dashboard' })
+  }
 }
 
 async function logout() {
@@ -238,11 +248,11 @@ async function logout() {
               </select>
             </div>
             <nav class="pos-user-pop__actions">
-              <RouterLink
+              <button
                 v-if="auth.isProviderAdmin"
-                :to="{ name: 'provider-dashboard' }"
+                type="button"
                 class="pos-user-pop__item"
-                @click="userMenuOpen = false"
+                @click="goProviderPanel"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -261,7 +271,7 @@ async function logout() {
                   <rect x="14" y="14" width="7" height="7" rx="1" />
                 </svg>
                 {{ tr('posShell.user.provider') }}
-              </RouterLink>
+              </button>
               <RouterLink
                 v-if="auth.isOwner"
                 :to="{ name: 'dashboard' }"

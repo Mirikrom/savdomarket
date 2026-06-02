@@ -38,8 +38,11 @@ OWNER_PERMISSIONS = (
     "subscriptions.manage",
     "subscriptions.view_invoices",
     "catalog.manage",
+    "catalog.view",
     "products.manage",
+    "products.view",
     "inventory.manage",
+    "inventory.receive",
     "sales.manage",
     "sales.view",
 )

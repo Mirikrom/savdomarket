@@ -3,6 +3,7 @@ import { sales } from '../services/sales.service'
 import { checkApiReachable, isOfflineMode } from './connectivity'
 import { applyLocalStockDeduction } from './catalogSync'
 import { resolveDebtorServerId, syncOfflineDebtors } from './offlineDebtors'
+import { syncOfflineDebtPayments } from './offlineDebtPayments'
 import { remapProductId, syncOfflineMutations } from './offlineMutations'
 import {
   getPersistedCashierName,
@@ -274,5 +275,7 @@ export async function syncOfflineSales() {
     }
   }
 
-  return { synced, failed }
+  const payments = await syncOfflineDebtPayments().catch(() => ({ synced: 0, failed: 0 }))
+
+  return { synced, failed, payments }
 }
