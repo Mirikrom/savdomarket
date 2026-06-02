@@ -852,6 +852,11 @@ onUnmounted(() => {
       <div class="pos-topbar__brand">
         <h1 class="pos-topbar__title">{{ tr('pos.pageTitle') }}</h1>
       </div>
+      <div v-if="auth.supportMode" class="pos-topbar__support" role="status">
+        <span class="pos-topbar__support-text">
+          Qo‘llab-quvvatlash: {{ auth.organizationName || `#${auth.organizationId}` }}
+        </span>
+      </div>
       <AppPreferencesBar dark-surface class="pos-topbar__prefs" />
     </header>
 
@@ -1383,6 +1388,27 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.pos-topbar__support {
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  flex: 1;
+}
+
+.pos-topbar__support-text {
+  font-size: 0.78rem;
+  line-height: 1.2;
+  color: #92400e;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  padding: 5px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .pos-topbar__title {

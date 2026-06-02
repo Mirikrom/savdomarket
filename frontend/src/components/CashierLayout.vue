@@ -436,6 +436,7 @@ async function logout() {
   height: 100dvh;
   max-height: 100dvh;
   overflow: visible;
+  z-index: 60;
 }
 
 .pos-side__logo {
