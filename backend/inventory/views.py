@@ -118,6 +118,17 @@ class StockMovementViewSet(viewsets.ModelViewSet):
         )
 
     def create(self, request, *args, **kwargs):
+        membership = get_membership(request)
+        client_uuid = request.data.get("client_uuid")
+        if client_uuid and membership:
+            existing = StockMovement.objects.filter(
+                organization=membership.organization,
+                client_uuid=client_uuid,
+            ).first()
+            if existing:
+                read_serializer = StockMovementSerializer(existing)
+                return Response(read_serializer.data, status=status.HTTP_200_OK)
+
         write_serializer = self.get_serializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
         self.perform_create(write_serializer)

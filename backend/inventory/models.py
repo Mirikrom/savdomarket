@@ -54,6 +54,7 @@ class StockMovement(TimeStampedModel):
     ref_type = models.CharField(max_length=32, blank=True)
     ref_id = models.PositiveBigIntegerField(null=True, blank=True)
     note = models.CharField(max_length=255, blank=True)
+    client_uuid = models.UUIDField(null=True, blank=True, editable=False, db_index=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -66,6 +67,13 @@ class StockMovement(TimeStampedModel):
         indexes = [
             models.Index(fields=["organization", "branch", "product"]),
             models.Index(fields=["movement_type", "created_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "client_uuid"],
+                condition=models.Q(client_uuid__isnull=False),
+                name="uniq_stock_movement_client_uuid_per_org",
+            )
         ]
 
     def __str__(self):

@@ -39,6 +39,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
             "ref_type",
             "ref_id",
             "note",
+            "client_uuid",
             "created_by",
             "created_by_name",
             "created_at",
@@ -76,6 +77,7 @@ class StockMovementWriteSerializer(serializers.ModelSerializer):
             "ref_type",
             "ref_id",
             "note",
+            "client_uuid",
         ]
 
     def validate(self, attrs):

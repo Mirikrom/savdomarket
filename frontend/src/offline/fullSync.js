@@ -5,6 +5,7 @@ import { syncCatalogToIndexedDB } from './catalogSync'
 import { syncOfflineDebtors } from './offlineDebtors'
 import { syncOfflineMutations } from './offlineMutations'
 import { syncOfflineSales } from './offlineSales'
+import { syncOfflineStockReceipts } from './offlineStockReceipts'
 import { syncSalesToIndexedDB } from './salesCache'
 
 export async function syncDebtorsToIndexedDB(organizationId) {
@@ -40,6 +41,7 @@ export async function syncAllOfflineData(organizationId, branchId, { branches } 
 
   await syncOfflineMutations()
   await syncOfflineDebtors().catch(() => {})
+  await syncOfflineStockReceipts().catch(() => {})
   const catalogOk = await syncCatalogToIndexedDB(orgId, bid)
   await syncDebtorsToIndexedDB(orgId).catch(() => {})
   await syncSalesToIndexedDB(orgId).catch(() => {})

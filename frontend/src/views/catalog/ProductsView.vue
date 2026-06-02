@@ -108,6 +108,7 @@ const catalogOffline = ref(false)
 const modalOpen = ref(false)
 const editingId = ref(null)
 const apiError = ref('')
+const modalError = ref('')
 const categoryQuickError = ref('')
 const saving = ref(false)
 const scannerOpen = ref(false)
@@ -179,6 +180,12 @@ function setImagePreviewFromFile(file) {
   }
   imagePreviewBlobUrl = URL.createObjectURL(file)
   imagePreviewUrl.value = imagePreviewBlobUrl
+}
+
+function openImagePicker() {
+  if (productImageInput.value) {
+    productImageInput.value.click()
+  }
 }
 
 const productColumnsBase = computed(() => {
@@ -323,7 +330,8 @@ const nameDuplicateNew = computed(() => {
 })
 
 function pickExistingProduct(row) {
-  openEdit(row)
+  form.name = row.name || ''
+  modalError.value = ''
 }
 
 function applyStockMapFromQuantities(productRows, quantityByProductId = {}) {
@@ -719,8 +727,10 @@ function buildPayload() {
 
 async function submit() {
   apiError.value = ''
+  modalError.value = ''
   if (!editingId.value && nameDuplicateNew.value) {
-    apiError.value = 'Bu nomdagi mahsulot allaqachon mavjud.'
+    modalError.value =
+      'Bu mahsulot mavjud! Iltimos yangi mahsulot kiriting yoki mahsulotlar bo‘limidan shu mahsulotni tanlab o‘zgartiring!'
     return
   }
   saving.value = true
@@ -865,6 +875,7 @@ watch(modalOpen, (open) => {
     clearProductImage.value = false
     revokeImageBlobPreview()
     imagePreviewUrl.value = ''
+    modalError.value = ''
     if (productImageInput.value) productImageInput.value.value = ''
   }
 })
@@ -1072,10 +1083,10 @@ onUnmounted(() => {
             <span>Mahsulot nomi <i class="required">*</i></span>
             <input v-model.trim="form.name" type="text" required maxlength="255" />
             <p v-if="!editingId && nameDuplicateNew" class="form-message form-message--error name-duplicate-msg">
-              Bu nom allaqachon mavjud — saqlab bo‘lmaydi. Pastdagi ro‘yxatdan tanlang yoki nomni o‘zgartiring.
+              Bu mahsulot mavjud! Iltimos yangi mahsulot kiriting yoki mahsulotlar bo‘limidan shu mahsulotni tanlab o‘zgartiring!
             </p>
             <div
-              v-if="!editingId && form.name.trim().length >= 2 && nameSuggestions.length"
+              v-if="!editingId && !nameDuplicateNew && form.name.trim().length >= 2 && nameSuggestions.length"
               class="name-suggest"
             >
               <span class="name-suggest__title">Bazada o‘xshash mahsulotlar</span>
@@ -1091,46 +1102,7 @@ onUnmounted(() => {
           </label>
         </section>
 
-        <section class="products-form__section">
-          <h4 class="products-form__heading">Rasm</h4>
-          <div class="product-image-field">
-            <div
-              v-if="imagePreviewUrl && !clearProductImage"
-              class="product-image-field__preview"
-            >
-              <img :src="imagePreviewUrl" alt="" />
-            </div>
-            <div v-else class="product-image-field__preview product-image-field__preview--empty">
-              Rasm yo‘q
-            </div>
-            <div class="product-image-field__row">
-              <label class="btn btn--ghost btn--sm product-image-field__pick">
-                <input
-                  ref="productImageInput"
-                  type="file"
-                  class="product-image-field__input"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  @change="onImageFileChange"
-                />
-                Rasm tanlash
-              </label>
-              <button
-                v-if="imageFile"
-                type="button"
-                class="btn btn--ghost btn--sm"
-                @click="resetPickedImageFile"
-              >
-                Tanlovni bekor
-              </button>
-            </div>
-            <label v-if="editingId && editingHadImage" class="product-image-field__clear">
-              <input v-model="clearProductImage" type="checkbox" />
-              <span>Rasmni olib tashlash</span>
-            </label>
-            <p class="product-image-field__hint">JPEG, PNG, WebP yoki GIF, 3 MB gacha.</p>
-          </div>
-        </section>
-
+        <template v-if="editingId || !nameDuplicateNew">
         <section class="products-form__section">
           <div class="products-form__row">
             <label class="field">
@@ -1253,7 +1225,66 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <p v-if="apiError" class="form-message form-message--error products-form__error">{{ apiError }}</p>
+        <section class="products-form__section">
+          <h4 class="products-form__heading">Rasm</h4>
+          <div class="product-image-field">
+            <input
+              ref="productImageInput"
+              type="file"
+              class="product-image-field__input"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              @change="onImageFileChange"
+            />
+            <div
+              v-if="imagePreviewUrl && !clearProductImage"
+              class="product-image-field__preview"
+              role="button"
+              tabindex="0"
+              @click="openImagePicker"
+            >
+              <img :src="imagePreviewUrl" alt="" />
+            </div>
+            <div
+              v-else
+              class="product-image-field__preview product-image-field__preview--empty"
+              role="button"
+              tabindex="0"
+              @click="openImagePicker"
+            >
+              Rasm qo‘shish
+            </div>
+            <div
+              v-if="imagePreviewUrl || imageFile || (editingId && editingHadImage)"
+              class="product-image-field__row"
+            >
+              <button
+                type="button"
+                class="btn btn--ghost btn--sm product-image-field__pick"
+                @click="openImagePicker"
+              >
+                Rasmni almashtirish
+              </button>
+              <button
+                v-if="imageFile"
+                type="button"
+                class="btn btn--ghost btn--sm"
+                @click="resetPickedImageFile"
+              >
+                Tanlovni bekor
+              </button>
+            </div>
+            <label v-if="editingId && editingHadImage" class="product-image-field__clear">
+              <input v-model="clearProductImage" type="checkbox" />
+              <span>Rasmni olib tashlash</span>
+            </label>
+            <p class="product-image-field__hint">JPEG, PNG, WebP yoki GIF, 3 MB gacha.</p>
+          </div>
+        </section>
+
+        <p v-if="modalError" class="form-message form-message--error products-form__error">
+          {{ modalError }}
+        </p>
+        </template>
       </form>
 
       <template #footer>
@@ -1369,6 +1400,7 @@ onUnmounted(() => {
   background: var(--surface-soft, #f8fafc);
   display: grid;
   place-items: center;
+  cursor: pointer;
 }
 
 .product-image-field__preview img {
@@ -1395,12 +1427,7 @@ onUnmounted(() => {
 }
 
 .product-image-field__input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  width: 100%;
-  height: 100%;
-  cursor: pointer;
+  display: none;
 }
 
 .product-image-field__clear {

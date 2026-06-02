@@ -27,6 +27,10 @@ savdoDb.version(5).stores({
   local_debt_payments: 'client_uuid, status, organizationId, debtor_ref, created_at',
 })
 
+savdoDb.version(6).stores({
+  local_stock_receipts: 'client_uuid, status, organizationId, branchId, productId, created_at',
+})
+
 /** Vue/Pinia Proxy va boshqa narsalarni IndexedDB uchun xavfsiz JSON ga aylantiradi. */
 export function toPlainJson(value) {
   if (value === undefined) return null

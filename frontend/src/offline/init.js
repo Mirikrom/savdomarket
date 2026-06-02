@@ -87,3 +87,4 @@ export { runPendingOfflineSync, scheduleFullSync, schedulePendingSalesSync } fro
 export { syncAllOfflineData } from './fullSync'
 export { countPendingSales, syncOfflineSales } from './offlineSales'
 export { countPendingDebtorSyncItems, syncOfflineDebtPayments } from './offlineDebtPayments'
+export { countPendingStockReceipts, syncOfflineStockReceipts } from './offlineStockReceipts'

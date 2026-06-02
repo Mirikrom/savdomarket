@@ -7,6 +7,7 @@ import BarcodeScanner from '../../components/BarcodeScanner.vue'
 import MobileCameraScanFab from '../../components/MobileCameraScanFab.vue'
 import DataTable from '../../components/DataTable.vue'
 import PageHeader from '../../components/PageHeader.vue'
+import SyncStatusIcon from '../../components/SyncStatusIcon.vue'
 import { useHardwareBarcodeScanner } from '../../composables/useHardwareBarcodeScanner'
 import { findProductByScanCode, normalizeScanCode } from '../../lib/barcodeScan'
 import { sortProductsForDisplay } from '../../lib/productSort'
@@ -17,11 +18,21 @@ import {
 import {
   checkApiReachable,
   isOfflineMode,
+  isNetworkError,
   markApiReachable,
   onConnectivityChange,
 } from '../../offline/connectivity'
 import { hydrateOrganizationStore, resolvePosIds } from '../../offline/posContext'
-import { attachCachedImagesToProducts, resolveProductImageSrc } from '../../offline/imageCache'
+import {
+  attachCachedImagesToProducts,
+  cacheProductImages,
+  resolveProductImageSrc,
+} from '../../offline/imageCache'
+import {
+  countPendingStockReceipts,
+  getPendingStockReceiptMap,
+  saveOfflineStockReceipt,
+} from '../../offline/offlineStockReceipts'
 import { useI18n } from '../../i18n'
 import { categories, products as productsApi } from '../../services/catalog.service'
 import { stockLevels, stockMovements } from '../../services/inventory.service'
@@ -35,6 +46,7 @@ const org = useOrganizationStore()
 const { tr, locale, branchLabel } = useI18n()
 
 const rows = ref([])
+const pendingReceiptCount = ref(0)
 const loading = ref(false)
 const hasDisplayedProducts = ref(false)
 let fetchInFlight = null
@@ -67,16 +79,39 @@ const unitOptions = computed(() => [
   { value: 'pack', label: tr('page.products.unit.pack') },
 ])
 
+const syncStatusLabelMap = computed(() => ({
+  pending: tr('page.receipt.sync.pending'),
+  synced: tr('page.receipt.sync.synced'),
+}))
+
+function receiptSyncIconKind(status) {
+  return status === 'pending' ? 'pending' : 'synced'
+}
+
 function numberLocale() {
   return locale.value === 'ru' ? 'ru-RU' : 'uz-UZ'
 }
 
 function productRowImageSrc(row) {
+  if (!row) return ''
+  if (row._cachedImageUrl) return row._cachedImageUrl
+  if (isOfflineMode()) return ''
   return resolveProductImageSrc(row)
 }
 
 function productRowHasImage(row) {
+  if (!row || row._imageLoadError) return false
   return Boolean(productRowImageSrc(row))
+}
+
+function onProductImageError(row) {
+  if (!row) return
+  row._imageLoadError = true
+}
+
+function onProductImageLoad(row) {
+  if (!row) return
+  row._imageLoadError = false
 }
 
 function formatStockQty(row) {
@@ -88,6 +123,11 @@ function formatStockQty(row) {
 const columns = computed(() => {
   const loc = numberLocale()
   return [
+    {
+      key: '_syncStatus',
+      label: tr('page.receipt.colSync'),
+      width: '52px',
+    },
     {
       key: 'image_url',
       label: tr('page.products.colImage'),
@@ -178,7 +218,7 @@ useHardwareBarcodeScanner({
 
 function productIdsSignature(list) {
   if (!list?.length) return ''
-  return list.map((p) => p.id).join(',')
+  return list.map((p) => [p.id, p._syncStatus, p._stockQty].join(':')).join('|')
 }
 
 function applyRowsIfChanged(next) {
@@ -213,6 +253,17 @@ function mergeCatalogRows(pList, cList, stockByProduct) {
       _stockLow: Boolean(stock?.is_low),
     }
   })
+}
+
+function withPendingReceiptStatus(list, pendingMap = {}) {
+  return (list || []).map((row) => ({
+    ...row,
+    _syncStatus: Number(pendingMap[row.id] || 0) > 0 ? 'pending' : 'synced',
+  }))
+}
+
+async function refreshPendingReceiptCount() {
+  pendingReceiptCount.value = await countPendingStockReceipts()
 }
 
 let attachImagesPromise = null
@@ -261,7 +312,9 @@ async function loadReceiptFromCache() {
   }
 
   const merged = mergeCatalogRows(cached.products, cached.categories, stockByProduct)
-  applyRowsIfChanged(merged)
+  const pendingMap = await getPendingStockReceiptMap(bid)
+  applyRowsIfChanged(withPendingReceiptStatus(merged, pendingMap))
+  await refreshPendingReceiptCount()
   attachProductImagesOnce()
   return { hadCache: true, orgId, branchId: bid }
 }
@@ -295,9 +348,15 @@ async function refreshReceiptFromApi() {
     }
 
     const merged = mergeCatalogRows(pList, cList, stockByProduct)
-    applyRowsIfChanged(merged)
+    const pendingMap = await getPendingStockReceiptMap(branchIdForStock)
+    applyRowsIfChanged(withPendingReceiptStatus(merged, pendingMap))
+    await refreshPendingReceiptCount()
     markProductsDisplayed()
     attachProductImagesOnce()
+    // Offline refreshdan keyin ham rasmlar ko'rinsin: API rasmlarini IndexedDBga oldindan keshlaymiz.
+    cacheProductImages(merged, { concurrency: 3 })
+      .then(() => attachProductImagesOnce())
+      .catch(() => {})
 
     if (orgId && branchIdForStock) {
       persistCatalogToIndexedDB(orgId, branchIdForStock, pList, cList, stockData).catch(() => {})
@@ -350,6 +409,7 @@ function onSyncComplete() {
   if (now - lastSyncRefreshAt < 4000) return
   lastSyncRefreshAt = now
   refreshReceiptFromApi().catch(() => {})
+  refreshPendingReceiptCount().catch(() => {})
 }
 
 function openReceiptModal(row) {
@@ -394,19 +454,45 @@ async function submitReceipt() {
 
   saving.value = true
   try {
-    await stockMovements.create({
+    const payload = {
       branch: Number(receiptForm.branch),
       product: Number(selectedProduct.value.id),
       movement_type: 'in',
       quantity: receiptForm.quantity,
       unit_cost: receiptForm.unit_cost || 0,
       note: receiptForm.note.trim(),
-    })
-    successMsg.value = tr('page.receipt.success', { name: selectedProduct.value.name })
+    }
+    if (isOfflineMode()) {
+      const { orgId } = await resolvePosIds(org)
+      await saveOfflineStockReceipt(orgId, payload)
+      successMsg.value = tr('page.receipt.offlineSaved', { name: selectedProduct.value.name })
+    } else {
+      await stockMovements.create(payload)
+      successMsg.value = tr('page.receipt.success', { name: selectedProduct.value.name })
+    }
     closeModal()
     await fetchData()
     focusHardwareScan()
   } catch (error) {
+    if (isNetworkError(error)) {
+      try {
+        const { orgId } = await resolvePosIds(org)
+        await saveOfflineStockReceipt(orgId, {
+          branch: Number(receiptForm.branch),
+          product: Number(selectedProduct.value.id),
+          quantity: receiptForm.quantity,
+          unit_cost: receiptForm.unit_cost || 0,
+          note: receiptForm.note.trim(),
+        })
+        successMsg.value = tr('page.receipt.offlineSaved', { name: selectedProduct.value.name })
+        closeModal()
+        await fetchData()
+        focusHardwareScan()
+        return
+      } catch {
+        /* fallthrough */
+      }
+    }
     const data = error?.response?.data
     apiError.value =
       data?.detail ||
@@ -452,6 +538,7 @@ onMounted(async () => {
   if (org.currentBranchId) branchFilter.value = String(org.currentBranchId)
   branchFilterReady = true
   await fetchData()
+  await refreshPendingReceiptCount()
   focusHardwareScan()
 
   let skipInitialConnectivity = true
@@ -499,6 +586,9 @@ watch(scannerOpen, (open) => {
 
     <p v-if="successMsg" class="form-message form-message--success receipt-view__banner">
       {{ successMsg }}
+    </p>
+    <p v-if="pendingReceiptCount > 0" class="form-message form-message--info receipt-view__banner">
+      {{ tr('page.receipt.offlineBanner', { n: pendingReceiptCount }) }}
     </p>
     <p v-if="apiError && !tableLoading && !modalOpen" class="form-message form-message--error receipt-view__banner">
       {{ apiError }}
@@ -557,6 +647,12 @@ watch(scannerOpen, (open) => {
         :empty-text="tr('page.receipt.emptyTable')"
         @row-click="openReceiptModal"
       >
+        <template #cell:_syncStatus="{ row }">
+          <SyncStatusIcon
+            :kind="receiptSyncIconKind(row._syncStatus)"
+            :label="syncStatusLabelMap[row._syncStatus] || row._syncStatus"
+          />
+        </template>
         <template #cell:image_url="{ row }">
           <div class="products-view__thumb-wrap">
             <img
@@ -565,6 +661,8 @@ watch(scannerOpen, (open) => {
               :src="productRowImageSrc(row)"
               :alt="row.name || ''"
               loading="lazy"
+              @error="onProductImageError(row)"
+              @load="onProductImageLoad(row)"
             />
             <span v-else class="products-view__thumb--empty" aria-hidden="true">—</span>
           </div>

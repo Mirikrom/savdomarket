@@ -1,6 +1,7 @@
 import { checkApiReachable, isOfflineMode } from './connectivity'
 import { syncAllOfflineData } from './fullSync'
 import { syncOfflineSales } from './offlineSales'
+import { syncOfflineStockReceipts } from './offlineStockReceipts'
 import { ensureSyncOrgContext } from './syncContext'
 
 const MIN_FULL_SYNC_MS = 3 * 60 * 1000
@@ -16,7 +17,7 @@ function dispatchSyncComplete(detail) {
   }
 }
 
-/** Kutilayotgan savdo, qarzdor va to‘lovlarni serverga yuborish. */
+/** Kutilayotgan savdo, qarzdor/to'lov va kirimlarni serverga yuborish. */
 export function runPendingOfflineSync() {
   if (pendingSyncPromise) return pendingSyncPromise
 
@@ -39,7 +40,9 @@ export function runPendingOfflineSync() {
       return missing
     }
 
-    const result = await syncOfflineSales()
+    const sales = await syncOfflineSales()
+    const receipts = await syncOfflineStockReceipts().catch(() => ({ synced: 0, failed: 0 }))
+    const result = { ...sales, receipts }
     dispatchSyncComplete(result)
     return result
   })()
